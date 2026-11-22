@@ -259,3 +259,29 @@ test("someone with only one parent entered is described through that parent", ()
   // Seen from Dan, Benita's son is his stepson, as before.
   assert.equal(relationship(idx, "dan", "eddie").label, "Stepson");
 });
+
+test("a child of only one of a couple gets its own, lower line", () => {
+  const family: Family = {
+    name: "One parent line",
+    people: [
+      { id: "benita", name: "Benita", gender: "female" },
+      { id: "frank", name: "Frank", gender: "male" },
+      { id: "lemuel", name: "Lemuel", birthYear: 1900 },
+      { id: "eddie", name: "Eddie", birthYear: 1905 },
+    ],
+    parentLinks: [
+      { parentId: "benita", childId: "lemuel" },
+      { parentId: "frank", childId: "lemuel" },
+      { parentId: "benita", childId: "eddie" },
+    ],
+    spouseLinks: [{ aId: "benita", bId: "frank" }],
+  };
+  const layout = computeLayout(family);
+  const toLemuel = layout.paths.find((p) => p.key.endsWith(">lemuel"))!;
+  const toEddie = layout.paths.find((p) => p.key.endsWith(">eddie"))!;
+  assert.equal(toLemuel.oneParent, false);
+  assert.equal(toEddie.oneParent, true);
+  // The horizontal run is the "V<y>" before "H": Eddie's sits lower than the shared one.
+  const runY = (d: string) => Number(/V([\d.]+) H/.exec(d)![1]);
+  assert.ok(runY(toEddie.d) > runY(toLemuel.d));
+});

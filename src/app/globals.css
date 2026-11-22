@@ -18,6 +18,8 @@
 
 :root {
   color-scheme: light;
+  /* Lines to a child of only one person in a couple (used directly in the tree's SVG). */
+  --color-one-parent: #7fa88f;
 }
 
 body {

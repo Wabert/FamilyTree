@@ -45,6 +45,11 @@ export interface LayoutPath {
   d: string;
   /** True when the child sits somewhere other than directly under these parents. */
   dashed: boolean;
+  /**
+   * The child of only one person in a couple (e.g. Benita's son, but not Frank's).
+   * Drawn in its own color, on a line a little below the couple's shared one.
+   */
+  oneParent: boolean;
 }
 
 export interface CoupleLine {
@@ -269,11 +274,14 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
       const cy = child.y;
 
       const direct = unit.children.includes(childUnit);
-      const midY = bottom + ROW_GAP / 2;
+      // Only one of a couple is this child's parent: run on a line of its own.
+      const oneParent = unit.members.length > 1 && slots.length === 1;
+      const midY = bottom + ROW_GAP / 2 + (oneParent ? Math.min(10, ROW_GAP / 4) : 0);
       const bendY = (bottom + cy) / 2;
       paths.push({
         key: `${unit.members[slots[0]]}>${person.id}`,
         dashed: !direct,
+        oneParent,
         d: direct
           ? `M${sx},${sy} V${midY} H${cx} V${cy}`
           : `M${sx},${bottom} C${sx},${bendY} ${cx},${bendY} ${cx},${cy}`,
