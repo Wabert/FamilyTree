@@ -86,7 +86,12 @@ const shortDate = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, sameYear(d) ? { month: "numeric", day: "numeric" } : { month: "numeric", day: "numeric", year: "2-digit" });
 };
-const shortTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+/** "6:11p": short enough to sit on the same line as the date. */
+const shortTime = (iso: string) => {
+  const d = new Date(iso);
+  const h = d.getHours();
+  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}${h < 12 ? "a" : "p"}`;
+};
 const fullDateTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -99,7 +104,7 @@ const plain = (text: string) =>
 const uniqueSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
 const PAGE = 500;
-const ROW = "grid grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-2";
+const ROW = "grid grid-cols-[5.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-2";
 
 interface Filters {
   text: string;
@@ -359,10 +364,9 @@ export function ChangeHistoryView({
                         onClick={() => setOpenId(open ? null : change.id)}
                         className={`${ROW} w-full cursor-pointer px-4 py-2 text-left text-xs text-ink hover:bg-paper sm:px-6`}
                       >
-                        <span className="text-muted tabular-nums">
+                        <span className="truncate whitespace-nowrap text-muted tabular-nums">
                           {shortDate(change.at)}
-                          <br />
-                          {shortTime(change.at)}
+                          {sameYear(new Date(change.at)) && ` ${shortTime(change.at)}`}
                         </span>
                         <span className="truncate font-medium" title={change.who ?? undefined}>
                           {shortWho(change.who)}
