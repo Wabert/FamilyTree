@@ -423,9 +423,9 @@ export async function listMembers(): Promise<Member[]> {
 }
 
 /** Site owner only: the private change log, for the open tree or for every tree. */
-export async function listChanges(scope: "tree" | "all", beforeId: number | null): Promise<Change[]> {
+export async function listChanges(scope: "tree" | "all", beforeId: number | null, limit = 100): Promise<Change[]> {
   const { db, familyId } = open();
-  return remote.listChanges(db, { familyId: scope === "tree" ? familyId : null, beforeId });
+  return remote.listChanges(db, { familyId: scope === "tree" ? familyId : null, beforeId, limit });
 }
 
 export async function removeMember(memberUserId: string): Promise<void> {
