@@ -96,3 +96,129 @@ test("layout places everyone once without overlaps", () => {
   assert.equal(layout.paths.length, 14);
   assert.ok(layout.paths.every((p) => !p.dashed));
 });
+
+// Linda had Emily and James with Mark, divorced him, then married Tom and had
+// Sophie. Tom has a son, Sam, from his own earlier marriage to Carol.
+const blended: Family = {
+  name: "Blended",
+  people: [
+    { id: "gran", name: "Gran", gender: "female" },
+    { id: "mark", name: "Mark", gender: "male" },
+    { id: "linda", name: "Linda", gender: "female" },
+    { id: "tom", name: "Tom", gender: "male" },
+    { id: "carol", name: "Carol", gender: "female" },
+    { id: "emily", name: "Emily", gender: "female", birthYear: 1988 },
+    { id: "james", name: "James", gender: "male", birthYear: 1990 },
+    { id: "sophie", name: "Sophie", gender: "female", birthYear: 2006 },
+    { id: "sam", name: "Sam", gender: "male", birthYear: 1995 },
+  ],
+  parentLinks: [
+    { parentId: "gran", childId: "linda" },
+    { parentId: "mark", childId: "emily" },
+    { parentId: "linda", childId: "emily" },
+    { parentId: "mark", childId: "james" },
+    { parentId: "linda", childId: "james" },
+    { parentId: "linda", childId: "sophie" },
+    { parentId: "tom", childId: "sophie" },
+    { parentId: "tom", childId: "sam" },
+    { parentId: "carol", childId: "sam" },
+  ],
+  spouseLinks: [
+    { aId: "linda", bId: "tom", startYear: 2004 },
+    { aId: "mark", bId: "linda", status: "divorced", startYear: 1986, endYear: 2001 },
+    { aId: "tom", bId: "carol", status: "divorced" },
+  ],
+};
+
+test("divorce and remarriage", () => {
+  const idx = buildIndex(blended);
+  const r = (me: string, other: string) => relationship(idx, me, other).label;
+  assert.equal(r("linda", "mark"), "Ex-husband");
+  assert.equal(r("mark", "linda"), "Ex-wife");
+  assert.equal(r("linda", "tom"), "Husband");
+  assert.equal(r("emily", "mark"), "Father");
+  assert.equal(r("emily", "tom"), "Stepfather");
+  assert.equal(r("tom", "emily"), "Stepdaughter");
+  assert.equal(r("emily", "james"), "Brother");
+  assert.equal(r("emily", "sophie"), "Half-sister");
+  assert.equal(r("emily", "sam"), "Stepbrother");
+  assert.equal(r("sam", "emily"), "Stepsister");
+  assert.equal(r("sophie", "mark"), "Mother's ex-husband");
+  assert.equal(r("gran", "mark"), "Daughter's ex-husband");
+  assert.equal(r("gran", "tom"), "Son-in-law");
+  assert.equal(r("mark", "gran"), "Ex-wife's mother");
+});
+
+test("a marriage ended by a death", () => {
+  const family: Family = {
+    name: "Widowed",
+    people: [
+      { id: "grandpa", name: "Grandpa", gender: "male", deathYear: 1999 },
+      { id: "grandma", name: "Grandma", gender: "female" },
+      { id: "bob", name: "Bob", gender: "male" },
+      { id: "kid", name: "Kid" },
+    ],
+    parentLinks: [
+      { parentId: "grandpa", childId: "kid" },
+      { parentId: "grandma", childId: "kid" },
+    ],
+    spouseLinks: [
+      { aId: "grandpa", bId: "grandma" },
+      { aId: "grandma", bId: "bob", startYear: 2003 },
+    ],
+  };
+  const idx = buildIndex(family);
+  assert.equal(relationship(idx, "grandma", "grandpa").label, "Late husband");
+  assert.equal(relationship(idx, "grandpa", "grandma").label, "Wife");
+  assert.equal(relationship(idx, "grandma", "bob").label, "Husband");
+  assert.equal(relationship(idx, "kid", "grandpa").label, "Father");
+  assert.equal(relationship(idx, "kid", "bob").label, "Stepfather");
+});
+
+test("layout puts a remarried person between their former and current spouse", () => {
+  const layout = computeLayout(blended);
+  const x = (id: string) => layout.nodes.find((n) => n.id === id)!.x;
+  assert.ok(x("mark") < x("linda") && x("linda") < x("tom"), "Mark, Linda, Tom from left to right");
+  const line = (a: string, b: string) => layout.couples.find((c) => c.key === `${a}+${b}` || c.key === `${b}+${a}`);
+  assert.equal(line("mark", "linda")?.divorced, true);
+  assert.equal(line("linda", "tom")?.divorced, false);
+  assert.match(line("mark", "linda")!.title, /Divorced · m\. 1986 · div\. 2001/);
+  // Every couple line joins two people who really are a couple.
+  const idx = buildIndex(blended);
+  for (const c of layout.couples) {
+    const [a, b] = c.key.split("+");
+    assert.ok(idx.spousesOf(a).includes(b), `${c.key} should be a couple`);
+  }
+});
+
+test("layout keeps a married-in spouse's other marriage beside them", () => {
+  // David is the family member; Linda married in, divorced him, then married Tom.
+  const family: Family = {
+    name: "Married in",
+    people: [
+      { id: "walter", name: "Walter", gender: "male" },
+      { id: "david", name: "David", gender: "male" },
+      { id: "linda", name: "Linda", gender: "female" },
+      { id: "tom", name: "Tom", gender: "male" },
+      { id: "kid", name: "Kid" },
+      { id: "sophie", name: "Sophie" },
+    ],
+    parentLinks: [
+      { parentId: "walter", childId: "david" },
+      { parentId: "david", childId: "kid" },
+      { parentId: "linda", childId: "kid" },
+      { parentId: "linda", childId: "sophie" },
+      { parentId: "tom", childId: "sophie" },
+    ],
+    spouseLinks: [
+      { aId: "david", bId: "linda", status: "divorced" },
+      { aId: "linda", bId: "tom" },
+    ],
+  };
+  const layout = computeLayout(family);
+  const node = (id: string) => layout.nodes.find((n) => n.id === id)!;
+  assert.equal(layout.nodes.length, family.people.length, "everyone placed once");
+  assert.ok(node("david").x < node("linda").x && node("linda").x < node("tom").x, "David, Linda, Tom from left to right");
+  assert.equal(node("tom").y, node("linda").y, "Tom on Linda's row");
+  assert.deepEqual(layout.couples.map((c) => [c.key, c.divorced]), [["david+linda", true], ["linda+tom", false]]);
+});

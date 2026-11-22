@@ -28,9 +28,21 @@ export interface ParentLink {
   childId: string;
 }
 
+/**
+ * Married, divorced, or partners who never married. A marriage that ended
+ * because one of them died stays "married": their death year says the rest.
+ */
+export type MarriageStatus = "married" | "divorced" | "partners";
+
 export interface SpouseLink {
   aId: string;
   bId: string;
+  /** Missing means married. */
+  status?: MarriageStatus;
+  /** Year they married or got together. */
+  startYear?: number;
+  /** Year they divorced or split up. */
+  endYear?: number;
 }
 
 export interface Family {

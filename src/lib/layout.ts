@@ -1,3 +1,4 @@
+import { marriageState, marriageYears, orderSpouses } from "./marriage.ts";
 import { buildIndex } from "./graph.ts";
 import type { Family } from "./types";
 
@@ -51,6 +52,10 @@ export interface CoupleLine {
   x1: number;
   x2: number;
   y: number;
+  /** Divorced or split up: drawn dashed with a break mark. */
+  divorced: boolean;
+  /** For a tooltip, e.g. "Divorced · m. 1986 · div. 2001". */
+  title: string;
 }
 
 export interface TreeLayout {
@@ -100,7 +105,9 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
   };
 
   const makeUnit = (primary: string): Unit => {
-    const spouses = index.spousesOf(primary).filter((s) => !unitOf.has(s));
+    // Past marriages first and the current one last, so a remarried person sits
+    // between their former and current spouse, each couple side by side.
+    const spouses = orderSpouses(index, primary, index.spousesOf(primary).filter((s) => !unitOf.has(s)));
     // Keep the primary person between two spouses so each couple is adjacent.
     const members =
       spouses.length >= 2
@@ -108,6 +115,24 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
         : [primary, ...spouses];
     const unit: Unit = { members, children: [], depth: 0, width: 0, subtreeWidth: 0, x: 0 };
     for (const m of members) unitOf.set(m, unit);
+
+    // Someone who married in may have married again (or before): put that
+    // spouse beside them on the outer side, so every couple stays side by side.
+    const placeOthers = (end: "left" | "right") => {
+      for (;;) {
+        const edge = end === "left" ? members[0] : members[members.length - 1];
+        if (edge === primary) return;
+        const others = orderSpouses(index, edge, index.spousesOf(edge).filter((s) => !unitOf.has(s)));
+        if (!others.length) return;
+        // Their current spouse goes on the outside, past marriages next to them.
+        const next = end === "left" ? others[others.length - 1] : others[0];
+        if (end === "left") members.unshift(next);
+        else members.push(next);
+        unitOf.set(next, unit);
+      }
+    };
+    placeOthers("left");
+    placeOthers("right");
     return unit;
   };
 
@@ -199,12 +224,18 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
       const node = { id, x: memberX(unit, i), y: rowY(unit.depth) };
       nodes.push(node);
       position.set(id, node);
-      if (i > 0) {
+      const left = unit.members[i - 1];
+      // Only draw a line between two people who are actually a couple.
+      if (i > 0 && index.spousesOf(id).includes(left)) {
+        const m = marriageState(index, left, id);
+        const kind = m.divorced ? (m.status === "partners" ? "Split up" : "Divorced") : m.widowed ? "Married (widowed)" : m.status === "partners" ? "Partners" : "Married";
         couples.push({
-          key: `${unit.members[i - 1]}+${id}`,
+          key: `${left}+${id}`,
           x1: node.x - SPOUSE_GAP,
           x2: node.x,
           y: node.y + CARD_H / 2,
+          divorced: m.divorced,
+          title: [kind, marriageYears(m)].filter(Boolean).join(" · "),
         });
       }
     });

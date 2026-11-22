@@ -1,5 +1,6 @@
 import type { Gender } from "./types";
 import type { FamilyIndex } from "./graph";
+import { marriageState, spouseTitle } from "./marriage.ts";
 
 export type RelationKind = "self" | "blood" | "marriage" | "none";
 
@@ -64,8 +65,6 @@ const ordinal = (n: number) => ORDINALS[n] ?? `${n}th`;
 const removed = (n: number) =>
   n === 0 ? "" : n === 1 ? " once removed" : n === 2 ? " twice removed" : ` ${n} times removed`;
 
-const spouseWord = (g: Gender | undefined) => pick(g, "husband", "wife", "spouse");
-
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Name for someone `down` generations below an ancestor that is `up` generations above you. */
@@ -127,10 +126,17 @@ export function relationship(index: FamilyIndex, meId: string, otherId: string):
     return yours("blood", bloodLabel(blood.up, blood.down, g, half), collateral ? blood.common : []);
   }
 
-  const mySpouses = index.spousesOf(meId);
-  const theirSpouses = index.spousesOf(otherId);
+  // Marriages still in place (including one ended by a death) come before divorces,
+  // which get "ex-" wording instead of in-law and step- words.
+  const divorcedFrom = (a: string, b: string) => marriageState(index, a, b).divorced;
+  const split = (from: string, ids: string[]) => [
+    ids.filter((id) => !divorcedFrom(from, id)),
+    ids.filter((id) => divorcedFrom(from, id)),
+  ];
+  const [mySpouses, myExes] = split(meId, index.spousesOf(meId));
+  const [theirSpouses, theirExes] = split(otherId, index.spousesOf(otherId));
 
-  if (mySpouses.includes(otherId)) return yours("marriage", spouseWord(g));
+  if (index.spousesOf(meId).includes(otherId)) return yours("marriage", spouseTitle(index, meId, otherId));
 
   // They married one of my blood relatives.
   const viaTheirSpouse = closestBlood(index, meId, theirSpouses);
@@ -143,7 +149,18 @@ export function relationship(index: FamilyIndex, meId: string, otherId: string):
     if (down === 1 && up >= 2) {
       return yours("marriage", `${greats(up - 2)}${pick(g, "uncle", "aunt", "aunt/uncle")} by marriage`);
     }
-    return yours("marriage", `${bloodLabel(up, down, relative?.gender)}'s ${spouseWord(g)}`);
+    return yours("marriage", `${bloodLabel(up, down, relative?.gender)}'s ${spouseTitle(index, viaTheirSpouse.id, otherId)}`);
+  }
+
+  // A child of my parent's spouse: a stepbrother or stepsister.
+  const myParents = index.parentsOf(meId);
+  for (const parentId of myParents) {
+    for (const stepParent of index.spousesOf(parentId)) {
+      if (myParents.includes(stepParent) || divorcedFrom(parentId, stepParent)) continue;
+      if (index.parentsOf(otherId).includes(stepParent)) {
+        return yours("marriage", pick(g, "stepbrother", "stepsister", "stepsibling"));
+      }
+    }
   }
 
   // They are a blood relative of my spouse.
@@ -151,7 +168,7 @@ export function relationship(index: FamilyIndex, meId: string, otherId: string):
     const viaMySpouse = findBlood(index, spouseId, otherId);
     if (!viaMySpouse) continue;
     const { up, down } = viaMySpouse;
-    const mine = spouseWord(index.byId.get(spouseId)?.gender);
+    const mine = spouseTitle(index, meId, spouseId);
     if (up === 1 && down === 0) return yours("marriage", pick(g, "father-in-law", "mother-in-law", "parent-in-law"));
     if (up === 0 && down === 1) return yours("marriage", pick(g, "stepson", "stepdaughter", "stepchild"));
     if (up === 1 && down === 1) return yours("marriage", pick(g, "brother-in-law", "sister-in-law", "sibling-in-law"));
@@ -164,9 +181,24 @@ export function relationship(index: FamilyIndex, meId: string, otherId: string):
     if (!link) continue;
     const { up, down } = link.blood;
     if (up === 1 && down === 1) return yours("marriage", pick(g, "brother-in-law", "sister-in-law", "sibling-in-law"));
-    const mine = spouseWord(index.byId.get(spouseId)?.gender);
+    const mine = spouseTitle(index, meId, spouseId);
     const relative = index.byId.get(link.id);
-    return yours("marriage", `${mine}'s ${bloodLabel(up, down, relative?.gender)}'s ${spouseWord(g)}`);
+    return yours("marriage", `${mine}'s ${bloodLabel(up, down, relative?.gender)}'s ${spouseTitle(index, link.id, otherId)}`);
+  }
+
+  // Divorced from one of my blood relatives: "mother's ex-husband", "sister's ex-wife".
+  const viaTheirEx = closestBlood(index, meId, theirExes);
+  if (viaTheirEx) {
+    const { up, down } = viaTheirEx.blood;
+    const relative = index.byId.get(viaTheirEx.id);
+    return yours("marriage", `${bloodLabel(up, down, relative?.gender)}'s ${spouseTitle(index, viaTheirEx.id, otherId)}`);
+  }
+
+  // A blood relative of my ex: "ex-wife's father".
+  for (const exId of myExes) {
+    const viaMyEx = findBlood(index, exId, otherId);
+    if (!viaMyEx) continue;
+    return yours("marriage", `${spouseTitle(index, meId, exId)}'s ${bloodLabel(viaMyEx.up, viaMyEx.down, g)}`);
   }
 
   return {

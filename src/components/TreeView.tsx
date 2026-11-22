@@ -251,9 +251,28 @@ export function TreeView({
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          {layout.couples.map((c) => (
-            <line key={c.key} x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} />
-          ))}
+          {layout.couples.map((c) => {
+            if (!c.divorced) {
+              return (
+                <line key={c.key} x1={c.x1} x2={c.x2} y1={c.y} y2={c.y}>
+                  <title>{c.title}</title>
+                </line>
+              );
+            }
+            // Divorced or split up: a dashed line broken by two slashes.
+            const mid = (c.x1 + c.x2) / 2;
+            return (
+              <g key={c.key}>
+                <title>{c.title}</title>
+                <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} strokeDasharray="2 3" />
+                <path
+                  d={`M${mid - 4},${c.y + 5} L${mid - 1},${c.y - 5} M${mid + 1},${c.y + 5} L${mid + 4},${c.y - 5}`}
+                  stroke="var(--color-muted)"
+                  strokeWidth={1.5}
+                />
+              </g>
+            );
+          })}
           {layout.paths.map((p) => (
             <path key={p.key} d={p.d} strokeDasharray={p.dashed ? "5 6" : undefined} />
           ))}

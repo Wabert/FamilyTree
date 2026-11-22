@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { buildIndex } from "@/lib/graph";
+import { marriageState } from "@/lib/marriage";
 import { buildOutline } from "@/lib/outline";
 import type { Relationship } from "@/lib/relationship";
 import type { Family, Person } from "@/lib/types";
@@ -30,6 +32,7 @@ export function ListView({
   onSelect(id: string): void;
 }) {
   const rows = useMemo(() => buildOutline(family), [family]);
+  const index = useMemo(() => buildIndex(family), [family]);
   const people = useMemo(() => new Map(family.people.map((p) => [p.id, p])), [family]);
 
   // For every row: the rows above it that it sits under, and how many people are below it.
@@ -251,10 +254,15 @@ export function ListView({
                 {row.spouseIds.map((spouseId) => {
                   const spouse = people.get(spouseId);
                   if (!spouse) return null;
+                  const divorced = marriageState(index, row.id, spouseId).divorced;
                   return (
                     <span key={spouseId} className="flex min-w-0 items-center gap-1.5">
-                      <span aria-hidden className="text-xs text-muted">
-                        &amp;
+                      <span
+                        className="text-xs text-muted"
+                        title={divorced ? "Divorced" : "Married"}
+                        aria-label={divorced ? "divorced from" : "and"}
+                      >
+                        {divorced ? "div." : "&"}
                       </span>
                       {chip(spouse)}
                     </span>

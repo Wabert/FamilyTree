@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Family, Gender, Person } from "./types";
+import type { Family, Gender, MarriageStatus, Person, SpouseLink } from "./types";
 
 /** Every Supabase read and write for one family tree. No app state lives here. */
 
@@ -105,6 +105,50 @@ function fetchPeople(db: SupabaseClient, familyId: string, withGallery: boolean)
   );
 }
 
+/** Remembered after the first load, so a database without update 8 is only asked once. */
+let marriageColumnsMissing = false;
+
+interface SpouseRow {
+  a_id: string;
+  b_id: string;
+  status?: MarriageStatus | null;
+  start_year?: number | null;
+  end_year?: number | null;
+}
+
+function fetchSpouseLinks(db: SupabaseClient, familyId: string, withMarriage: boolean) {
+  return fetchAll<SpouseRow>((from, to) =>
+    db
+      .from("spouse_links")
+      .select(withMarriage ? "a_id, b_id, status, start_year, end_year" : "a_id, b_id")
+      .eq("family_id", familyId)
+      .order("a_id")
+      .order("b_id")
+      .range(from, to),
+  );
+}
+
+/** Couples with their status and years, or just the couples if the database hasn't had update 8 yet. */
+async function loadSpouseLinks(db: SupabaseClient, familyId: string): Promise<SpouseLink[]> {
+  let rows: SpouseRow[] | null = null;
+  if (!marriageColumnsMissing) {
+    try {
+      rows = await fetchSpouseLinks(db, familyId, true);
+    } catch (e) {
+      if (!(e instanceof Error && /status|start_year|end_year/.test(e.message))) throw e;
+      marriageColumnsMissing = true;
+    }
+  }
+  rows ??= await fetchSpouseLinks(db, familyId, false);
+  return rows.map((r) => ({
+    aId: r.a_id,
+    bId: r.b_id,
+    ...(r.status && r.status !== "married" ? { status: r.status } : {}),
+    ...(r.start_year ? { startYear: r.start_year } : {}),
+    ...(r.end_year ? { endYear: r.end_year } : {}),
+  }));
+}
+
 /** People with their extra photos, or without them if the database hasn't had update 4 yet. */
 async function loadPeople(db: SupabaseClient, familyId: string): Promise<{ rows: PersonRow[]; galleryReady: boolean }> {
   if (!galleryColumnMissing) {
@@ -119,7 +163,7 @@ async function loadPeople(db: SupabaseClient, familyId: string): Promise<{ rows:
 }
 
 export async function loadFamily(db: SupabaseClient, familyId: string, userId: string): Promise<LoadedFamily> {
-  const [familyRow, memberRow, { rows: peopleRows, galleryReady }, parentRows, spouseRows] = await Promise.all([
+  const [familyRow, memberRow, { rows: peopleRows, galleryReady }, parentRows, spouseLinks] = await Promise.all([
     db.from("families").select("name, invite_code").eq("id", familyId).single(),
     db.from("family_members").select("person_id, role").eq("family_id", familyId).eq("user_id", userId).single(),
     loadPeople(db, familyId),
@@ -132,9 +176,7 @@ export async function loadFamily(db: SupabaseClient, familyId: string, userId: s
         .order("child_id")
         .range(from, to),
     ),
-    fetchAll<{ a_id: string; b_id: string }>((from, to) =>
-      db.from("spouse_links").select("a_id, b_id").eq("family_id", familyId).order("a_id").order("b_id").range(from, to),
-    ),
+    loadSpouseLinks(db, familyId),
   ]);
   const family = check(familyRow) as { name: string; invite_code: string };
   const member = check(memberRow) as { person_id: string | null; role: Role };
@@ -182,7 +224,7 @@ export async function loadFamily(db: SupabaseClient, familyId: string, userId: s
       name: family.name,
       people,
       parentLinks: parentRows.map((r) => ({ parentId: r.parent_id, childId: r.child_id })),
-      spouseLinks: spouseRows.map((r) => ({ aId: r.a_id, bId: r.b_id })),
+      spouseLinks,
     },
     meId: member.person_id,
     inviteCode: family.invite_code,
@@ -280,12 +322,47 @@ export async function removeParentLinks(db: SupabaseClient, childId: string, par
 /** The table stores each couple once, smaller id first. */
 const ordered = (x: string, y: string) => (x < y ? { a_id: x, b_id: y } : { a_id: y, b_id: x });
 
-export async function addSpouseLink(db: SupabaseClient, familyId: string, x: string, y: string) {
+export type MarriageDetails = Pick<SpouseLink, "status" | "startYear" | "endYear">;
+
+const isPlainMarriage = (d: MarriageDetails) => (d.status ?? "married") === "married" && !d.startYear && !d.endYear;
+
+/** The marriage columns to write, or none if the database doesn't have them yet. */
+function marriageColumns(details: MarriageDetails) {
+  if (marriageColumnsMissing) {
+    if (isPlainMarriage(details)) return {};
+    throw new Error(
+      "The database needs update 8 (supabase/update-8-marriage-status.sql) before a marriage can be marked divorced or given years.",
+    );
+  }
+  return {
+    status: details.status ?? "married",
+    start_year: details.startYear ?? null,
+    end_year: details.status === "divorced" ? (details.endYear ?? null) : null,
+  };
+}
+
+export async function addSpouseLink(
+  db: SupabaseClient,
+  familyId: string,
+  x: string,
+  y: string,
+  details: MarriageDetails = {},
+) {
   check(
     await db
       .from("spouse_links")
-      .upsert({ family_id: familyId, ...ordered(x, y) }, { onConflict: "a_id,b_id", ignoreDuplicates: true }),
+      .upsert(
+        { family_id: familyId, ...ordered(x, y), ...marriageColumns(details) },
+        { onConflict: "a_id,b_id", ignoreDuplicates: true },
+      ),
   );
+}
+
+export async function updateSpouseLink(db: SupabaseClient, x: string, y: string, details: MarriageDetails) {
+  const pair = ordered(x, y);
+  const columns = marriageColumns(details);
+  if (!Object.keys(columns).length) return;
+  check(await db.from("spouse_links").update(columns).eq("a_id", pair.a_id).eq("b_id", pair.b_id));
 }
 
 export async function removeSpouseLink(db: SupabaseClient, x: string, y: string) {

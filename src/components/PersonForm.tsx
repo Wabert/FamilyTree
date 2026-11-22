@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { descendantsOf, type FamilyIndex } from "@/lib/graph";
+import { orderSpouses } from "@/lib/marriage";
 import { toPhotoDataUrl, toSquareDataUrl } from "@/lib/images";
-import { addPerson, updatePerson, type PersonFields } from "@/lib/store";
-import { MAX_GALLERY, type Family, type Gender, type Person } from "@/lib/types";
+import { addPerson, updatePerson, type PersonFields, type SpouseEntry } from "@/lib/store";
+import { MAX_GALLERY, type Family, type Gender, type MarriageStatus, type Person } from "@/lib/types";
 import { Avatar } from "./Avatar";
 import { PersonName, PersonPicker, type PickerChoice } from "./PersonPicker";
 import { CityInput } from "./CityInput";
@@ -31,11 +32,23 @@ export function PersonForm({
   const editing = mode.type === "edit" ? index.byId.get(mode.id) : undefined;
   const editId = mode.type === "edit" ? mode.id : null;
   const initialParents = editId ? index.parentsOf(editId) : mode.type === "add" ? (mode.parentIds ?? []) : [];
-  const initialSpouse = editId
-    ? (index.spousesOf(editId)[0] ?? "")
-    : mode.type === "add"
-      ? (mode.spouseId ?? "")
-      : "";
+  const initialSpouses: SpouseRow[] = editId
+    ? orderSpouses(index, editId, index.spousesOf(editId))
+        .reverse()
+        .map((id) => {
+          const link = index.marriage(editId, id);
+          return {
+            key: id,
+            id,
+            newName: "",
+            status: link?.status ?? "married",
+            startYear: link?.startYear?.toString() ?? "",
+            endYear: link?.endYear?.toString() ?? "",
+          };
+        })
+    : mode.type === "add" && mode.spouseId
+      ? [{ ...emptySpouse(), id: mode.spouseId }]
+      : [];
   const childOf = mode.type === "add" && mode.childId ? index.byId.get(mode.childId) : undefined;
 
   const [name, setName] = useState(editing?.name ?? "");
@@ -54,9 +67,11 @@ export function PersonForm({
   const [readingPhotos, setReadingPhotos] = useState(false);
   const [parent1, setParent1] = useState(initialParents[0] ?? "");
   const [parent2, setParent2] = useState(initialParents[1] ?? "");
-  const [spouse, setSpouse] = useState(initialSpouse);
-  // Names typed for "+ Add a new person…" in each picker. They're created on save.
-  const [newNames, setNewNames] = useState({ parent1: "", parent2: "", spouse: "" });
+  const [spouses, setSpouses] = useState<SpouseRow[]>(initialSpouses.length ? initialSpouses : [emptySpouse()]);
+  const updateSpouse = (key: string, patch: Partial<SpouseRow>) =>
+    setSpouses((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  // Names typed for "+ Add a new person…" in the parent pickers. They're created on save.
+  const [newNames, setNewNames] = useState({ parent1: "", parent2: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -137,30 +152,54 @@ export function PersonForm({
     const picks = [
       { slot: "parent1", value: parent1, set: setParent1 },
       { slot: "parent2", value: parent2, set: setParent2 },
-      { slot: "spouse", value: spouse, set: setSpouse },
     ] as const;
-    if (picks.some((pick) => pick.value === NEW_PERSON && !newNames[pick.slot].trim())) {
+    const chosenSpouses = spouses.filter((row) => row.id);
+    if (
+      picks.some((pick) => pick.value === NEW_PERSON && !newNames[pick.slot].trim()) ||
+      chosenSpouses.some((row) => row.id === NEW_PERSON && !row.newName.trim())
+    ) {
       setError("Please enter the new person’s name, or pick someone else from the list.");
       return;
+    }
+    const marriages: { row: SpouseRow; startYear?: number; endYear?: number }[] = [];
+    for (const row of chosenSpouses) {
+      const startYear = parseYear(row.startYear, row.status === "partners" ? "The year they got together" : "Year married");
+      if (startYear === null) return;
+      const endYear = row.status === "divorced" ? parseYear(row.endYear, "Year divorced") : undefined;
+      if (endYear === null) return;
+      if (startYear && endYear && endYear < startYear) {
+        setError("The year they divorced can’t be before the year they married.");
+        return;
+      }
+      marriages.push({ row, startYear, endYear });
     }
 
     setSaving(true);
     setError("");
     try {
       // Add anyone new first, and remember them so a retry doesn't add them twice.
-      const ids = { parent1, parent2, spouse };
+      const ids = { parent1, parent2 };
       for (const pick of picks) {
         if (pick.value !== NEW_PERSON) continue;
-        ids[pick.slot] = await addPerson({ name: newNames[pick.slot].trim() }, { parentIds: [], spouseId: null });
+        ids[pick.slot] = await addPerson({ name: newNames[pick.slot].trim() }, { parentIds: [], spouses: [] });
         pick.set(ids[pick.slot]);
       }
+      const spouseEntries: SpouseEntry[] = [];
+      for (const { row, startYear, endYear } of marriages) {
+        let id = row.id;
+        if (id === NEW_PERSON) {
+          id = await addPerson({ name: row.newName.trim() }, { parentIds: [], spouses: [] });
+          updateSpouse(row.key, { id });
+        }
+        if (spouseEntries.some((entry) => entry.id === id)) continue;
+        spouseEntries.push({ id, status: row.status, startYear, endYear });
+      }
       const parentIds = [...new Set([ids.parent1, ids.parent2].filter(Boolean))];
-      const spouseId = ids.spouse || null;
       if (editId) {
-        await updatePerson(editId, fields, { parentIds, spouseId, previousSpouseId: initialSpouse || null });
+        await updatePerson(editId, fields, { parentIds, spouses: spouseEntries });
         onSaved(editId);
       } else {
-        onSaved(await addPerson(fields, { parentIds, spouseId, childId: childOf?.id }));
+        onSaved(await addPerson(fields, { parentIds, spouses: spouseEntries, childId: childOf?.id }));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "That couldn’t be saved. Please try again.");
@@ -255,15 +294,81 @@ export function PersonForm({
                 onNewName={(value) => setNewNames((names) => ({ ...names, parent2: value }))}
               />
             </div>
-            <PersonSelect
-              label="Spouse or partner"
-              emptyLabel="None"
-              value={spouse}
-              onChange={setSpouse}
-              people={others}
-              newName={newNames.spouse}
-              onNewName={(value) => setNewNames((names) => ({ ...names, spouse: value }))}
-            />
+            {spouses.map((row, i) => (
+              <div key={row.key} className={i > 0 ? "space-y-2 border-t border-line pt-3" : "space-y-2"}>
+                <PersonSelect
+                  label={i === 0 ? "Spouse or partner" : "Another spouse or partner"}
+                  emptyLabel="None"
+                  value={row.id}
+                  onChange={(id) => updateSpouse(row.key, { id })}
+                  people={others.filter((p) => p.id === row.id || !spouses.some((other) => other.id === p.id))}
+                  newName={row.newName}
+                  onNewName={(newName) => updateSpouse(row.key, { newName })}
+                />
+                {row.id && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="min-w-36 flex-1">
+                      <span className="mb-1 block text-xs font-medium text-muted">Status</span>
+                      <select
+                        className={inputClass}
+                        value={row.status}
+                        onChange={(e) => updateSpouse(row.key, { status: e.target.value as MarriageStatus })}
+                      >
+                        <option value="married">Married</option>
+                        <option value="divorced">Divorced</option>
+                        <option value="partners">Partners (not married)</option>
+                      </select>
+                    </label>
+                    <label className="w-24">
+                      <span className="mb-1 block text-xs font-medium text-muted">
+                        {row.status === "partners" ? "Since" : "Married"}
+                      </span>
+                      <input
+                        className={inputClass}
+                        inputMode="numeric"
+                        placeholder="Year"
+                        value={row.startYear}
+                        onChange={(e) => updateSpouse(row.key, { startYear: e.target.value })}
+                      />
+                    </label>
+                    {row.status === "divorced" && (
+                      <label className="w-24">
+                        <span className="mb-1 block text-xs font-medium text-muted">Divorced</span>
+                        <input
+                          className={inputClass}
+                          inputMode="numeric"
+                          placeholder="Year"
+                          value={row.endYear}
+                          onChange={(e) => updateSpouse(row.key, { endYear: e.target.value })}
+                        />
+                      </label>
+                    )}
+                    {spouses.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setSpouses((rows) => rows.filter((r) => r.key !== row.key))}
+                        className="cursor-pointer px-1 pb-2 text-xs font-medium text-clay hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            {spouses.every((row) => row.id) && (
+              <button
+                type="button"
+                onClick={() => setSpouses((rows) => [...rows, emptySpouse()])}
+                className="cursor-pointer text-sm font-medium text-leaf-dark hover:underline"
+              >
+                + Add another spouse or partner
+              </button>
+            )}
+            <p className="text-xs text-muted">
+              If a spouse has passed away, keep them as Married and add their year of death to their own details.
+              They’ll be shown as a late husband or wife.
+            </p>
           </fieldset>
 
           <Field label="Nickname">
@@ -391,6 +496,25 @@ export function PersonForm({
 }
 
 const NEW_PERSON = "__new__";
+
+/** One spouse in the form, with the years as typed. */
+interface SpouseRow {
+  key: string;
+  id: string;
+  newName: string;
+  status: MarriageStatus;
+  startYear: string;
+  endYear: string;
+}
+
+const emptySpouse = (): SpouseRow => ({
+  key: crypto.randomUUID(),
+  id: "",
+  newName: "",
+  status: "married",
+  startYear: "",
+  endYear: "",
+});
 
 /** A button showing who is chosen; tapping it opens a searchable list of everyone in the tree. */
 function PersonSelect({

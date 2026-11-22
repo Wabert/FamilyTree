@@ -4,7 +4,7 @@ import * as remote from "./remote";
 import type { Change, Member, PersonFields, Role } from "./remote";
 import { sampleFamily } from "./sample-family";
 import { supabase } from "./supabase";
-import type { Family } from "./types";
+import type { Family, MarriageStatus, SpouseLink } from "./types";
 
 /**
  * The family tree the app is showing, and every way of changing it.
@@ -32,10 +32,34 @@ export interface AppState {
   userId: string | null;
 }
 
+/** One of someone's spouses or partners, as chosen in the form. */
+export interface SpouseEntry {
+  id: string;
+  status: MarriageStatus;
+  startYear?: number;
+  endYear?: number;
+}
+
 export interface PersonLinks {
   parentIds: string[];
-  spouseId: string | null;
+  spouses: SpouseEntry[];
 }
+
+/** A spouse link between `id` and the person in `entry`, holding only what differs from a plain marriage. */
+const toLink = (id: string, entry: SpouseEntry): SpouseLink => ({
+  aId: id,
+  bId: entry.id,
+  ...(entry.status !== "married" ? { status: entry.status } : {}),
+  ...(entry.startYear ? { startYear: entry.startYear } : {}),
+  ...(entry.status === "divorced" && entry.endYear ? { endYear: entry.endYear } : {}),
+});
+
+const sameDetails = (link: SpouseLink, entry: SpouseEntry) =>
+  (link.status ?? "married") === entry.status &&
+  (link.startYear ?? null) === (entry.startYear ?? null) &&
+  (link.endYear ?? null) === (entry.status === "divorced" ? (entry.endYear ?? null) : null);
+
+const detailsOf = (entry: SpouseEntry) => ({ status: entry.status, startYear: entry.startYear, endYear: entry.endYear });
 
 const EMPTY_FAMILY: Family = { name: "", people: [], parentLinks: [], spouseLinks: [] };
 
@@ -297,7 +321,7 @@ export async function addPerson(fields: PersonFields, links: PersonLinks & { chi
         ...family,
         people: [...family.people, { ...fields, id }],
         parentLinks: [...family.parentLinks, ...parentPairs],
-        spouseLinks: links.spouseId ? [...family.spouseLinks, { aId: id, bId: links.spouseId }] : family.spouseLinks,
+        spouseLinks: [...family.spouseLinks, ...links.spouses.map((entry) => toLink(id, entry))],
       },
     });
     return id;
@@ -311,7 +335,7 @@ export async function addPerson(fields: PersonFields, links: PersonLinks & { chi
   await remote.insertPerson(db, familyId, userId, id, fields, photoPath, gallery);
   try {
     await remote.addParentLinks(db, familyId, parentPairs);
-    if (links.spouseId) await remote.addSpouseLink(db, familyId, id, links.spouseId);
+    for (const entry of links.spouses) await remote.addSpouseLink(db, familyId, id, entry.id, detailsOf(entry));
   } finally {
     await reload(); // show the new person even if linking them failed
   }
@@ -321,21 +345,24 @@ export async function addPerson(fields: PersonFields, links: PersonLinks & { chi
 export async function updatePerson(
   id: string,
   fields: PersonFields,
-  links: PersonLinks & { previousSpouseId: string | null },
+  links: PersonLinks,
 ): Promise<void> {
   const { family } = state;
-  const spouseChanged = links.spouseId !== links.previousSpouseId;
+  const otherOf = (link: SpouseLink) => (link.aId === id ? link.bId : link.aId);
+  const current = family.spouseLinks.filter((link) => link.aId === id || link.bId === id);
+  const wanted = new Map(links.spouses.map((entry) => [entry.id, entry]));
+  const removed = current.filter((link) => !wanted.has(otherOf(link)));
+  const added = links.spouses.filter((entry) => !current.some(samePair(id, entry.id)));
+  const changed = links.spouses.filter((entry) => {
+    const link = current.find(samePair(id, entry.id));
+    return link && !sameDetails(link, entry);
+  });
 
   if (state.mode === "local") {
-    let spouseLinks = family.spouseLinks;
-    if (spouseChanged) {
-      if (links.previousSpouseId) {
-        spouseLinks = spouseLinks.filter((link) => !samePair(id, links.previousSpouseId!)(link));
-      }
-      if (links.spouseId && !spouseLinks.some(samePair(id, links.spouseId))) {
-        spouseLinks = [...spouseLinks, { aId: id, bId: links.spouseId }];
-      }
-    }
+    const spouseLinks = [
+      ...family.spouseLinks.filter((link) => !(link.aId === id || link.bId === id)),
+      ...links.spouses.map((entry) => toLink(id, entry)),
+    ];
     commitLocal({
       meId: state.meId,
       family: {
@@ -370,10 +397,9 @@ export async function updatePerson(
       links.parentIds.filter((p) => !currentParents.includes(p)).map((parentId) => ({ parentId, childId: id })),
     );
 
-    if (spouseChanged) {
-      if (links.previousSpouseId) await remote.removeSpouseLink(db, id, links.previousSpouseId);
-      if (links.spouseId) await remote.addSpouseLink(db, familyId, id, links.spouseId);
-    }
+    for (const link of removed) await remote.removeSpouseLink(db, id, otherOf(link));
+    for (const entry of added) await remote.addSpouseLink(db, familyId, id, entry.id, detailsOf(entry));
+    for (const entry of changed) await remote.updateSpouseLink(db, id, entry.id, detailsOf(entry));
     if (oldPath && oldPath !== photoPath) void remote.removePhoto(db, oldPath);
     if (gallery) void remote.removePhoto(db, ...oldGallery.filter((path) => !gallery.includes(path)));
   } finally {

@@ -19,6 +19,9 @@ const FIELD_LABELS: Record<string, string> = {
   role: "Role",
   this_is_me: "This is me",
   invite_link: "Invite link",
+  status: "Marriage",
+  start_year: "Married",
+  end_year: "Divorced",
 };
 
 const PHOTO_FIELDS = new Set(["photo_path", "gallery_paths"]);

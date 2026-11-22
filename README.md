@@ -47,8 +47,8 @@ tests), `npm run lint`, `npm run build`.
 2. In the dashboard open **SQL Editor**, paste in all of `supabase/schema.sql`, and run it.
    Then do the same with `supabase/update-3-moderators.sql`,
    `supabase/update-4-photo-gallery.sql`, `supabase/update-5-tree-creators.sql`,
-   `supabase/update-6-change-log.sql` and `supabase/update-7-change-history-screen.sql`,
-   in that order. An existing project only needs the update files it hasn't had yet.
+   `supabase/update-6-change-log.sql`, `supabase/update-7-change-history-screen.sql` and
+   `supabase/update-8-marriage-status.sql`, in that order. An existing project only needs the update files it hasn't had yet.
    After update 5, only approved accounts can start new trees: sign in once by
    email, then approve yourself with the query at the bottom of that file.
    Update 6 keeps a private log of every change; read it in the dashboard under

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { siblingsOf, type FamilyIndex } from "@/lib/graph";
+import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
 import { MAX_GALLERY, type Person } from "@/lib/types";
 import { Avatar, lifespan } from "./Avatar";
@@ -45,9 +46,17 @@ export function PersonDetails({
   if (person.gender) facts.push(["Gender", GENDER_LABEL[person.gender]]);
   if (person.location) facts.push(["Lives in", person.location]);
 
+  // Current spouse first, then past marriages.
+  const spouses = orderSpouses(index, person.id, index.spousesOf(person.id)).reverse();
+  const spouseNote = (id: string) => {
+    const title = spouseTitle(index, person.id, id);
+    const years = marriageYears(marriageState(index, person.id, id));
+    return [title.charAt(0).toUpperCase() + title.slice(1), years].filter(Boolean).join(" · ");
+  };
+
   const groups: [string, string[]][] = [
     ["Parents", parents],
-    ["Spouse", index.spousesOf(person.id)],
+    [spouses.length > 1 ? "Spouses" : "Spouse", spouses],
     ["Siblings", siblingsOf(index, person.id)],
     ["Children", index.childrenOf(person.id)],
   ];
@@ -146,7 +155,12 @@ export function PersonDetails({
                         className="flex cursor-pointer items-center gap-2 rounded-full border border-line bg-white py-1 pr-3 pl-1 text-sm text-ink hover:border-leaf"
                       >
                         <Avatar person={relative} size={24} />
-                        {relative.name}
+                        <span className="text-left leading-tight">
+                          {relative.name}
+                          {spouses.includes(id) && (
+                            <span className="block text-[11px] text-muted">{spouseNote(id)}</span>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
