@@ -10,8 +10,13 @@ import { Avatar, lifespan } from "./Avatar";
 
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const firstName = (person: Person | undefined) => person?.nickname || person?.name.split(/\s+/)[0] || "";
-const byAge = (index: FamilyIndex) => (a: string, b: string) =>
-  (index.byId.get(a)?.birthYear ?? Infinity) - (index.byId.get(b)?.birthYear ?? Infinity);
+/** Oldest first; people without a birth year keep the order they were added, so rows never reshuffle. */
+const byAge = (index: FamilyIndex) => {
+  const added = new Map([...index.byId.keys()].map((id, i) => [id, i]));
+  return (a: string, b: string) =>
+    (index.byId.get(a)?.birthYear ?? Infinity) - (index.byId.get(b)?.birthYear ?? Infinity) ||
+    (added.get(a) ?? 0) - (added.get(b) ?? 0);
+};
 
 /**
  * One person at a time: their grandparents, parents, spouse, siblings and
@@ -129,6 +134,18 @@ export function FocusView({
                 note={!focused && isHalf(id) ? "Half-sibling" : undefined}
                 isMe={id === meId}
                 focused={focused}
+                spouses={
+                  focused
+                    ? spouses.map((s) => ({
+                        id: s,
+                        name: index.byId.get(s)?.name ?? "",
+                        title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
+                          .filter(Boolean)
+                          .join(" · "),
+                      }))
+                    : undefined
+                }
+                onSpouse={onCenter}
                 onClick={() => (focused ? onDetails(id) : undefined)}
               />
             )}
@@ -139,18 +156,6 @@ export function FocusView({
           />
           <p className="text-[11px] text-muted">Tap {firstName(center)} for details. Tap anyone else to move to them.</p>
         </Section>
-
-        {spouses.length > 0 && (
-          <Section title={spouses.length > 1 ? "Spouses" : "Spouse"}>
-            <Family>
-              {spouses.map((id) => {
-                const m = marriageState(index, centerId, id);
-                const note = [cap(spouseTitle(index, centerId, id)), marriageYears(m)].filter(Boolean).join(" · ");
-                return card(id, note);
-              })}
-            </Family>
-          </Section>
-        )}
 
         {groups.length > 0 && (
           <Section title="Children">
@@ -208,7 +213,11 @@ function SiblingCarousel({
   useLayoutEffect(() => {
     const container = row.current;
     const el = container?.querySelector<HTMLElement>(`[data-slot="${centerId}"]`);
-    if (container && el) container.scrollTo({ left: offsetFor(el, container), behavior: "instant" });
+    if (!container || !el) return;
+    // After a swipe the card is already in the middle: leave the row alone so nothing
+    // fights the finger. Otherwise (a tap elsewhere, Back, search) jump straight there.
+    const target = offsetFor(el, container);
+    if (Math.abs(container.scrollLeft - target) > 2) container.scrollTo({ left: target, behavior: "instant" });
   }, [centerId, ids]);
 
   useEffect(() => () => window.clearTimeout(settle.current), []);
@@ -297,6 +306,8 @@ function PersonCard({
   note,
   isMe,
   focused = false,
+  spouses,
+  onSpouse,
   onClick,
 }: {
   person: Person;
@@ -305,22 +316,20 @@ function PersonCard({
   isMe: boolean;
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
+  /** Shown inside the focused card, e.g. "Wife · m. 2004: Linda Hartley". */
+  spouses?: { id: string; name: string; title: string }[];
+  onSpouse?(id: string): void;
   onClick(): void;
 }) {
   const years = lifespan(person);
   const dead = person.deathYear !== undefined;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-focused={focused || undefined}
-      aria-label={focused ? `${person.name}, shown in the middle. Open details` : undefined}
-      className={[
-        "flex w-28 shrink-0 cursor-pointer flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-2 text-center transition-shadow hover:shadow-md",
-        focused ? "border-leaf bg-leaf-soft shadow-md" : dead ? "bg-memorial" : "bg-card shadow-sm",
-        isMe ? "border-leaf ring-2 ring-leaf" : focused ? "ring-1 ring-leaf" : "border-line",
-      ].join(" ")}
-    >
+  const look = [
+    "flex w-28 shrink-0 flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-2 text-center",
+    focused ? "border-leaf bg-leaf-soft shadow-md" : dead ? "bg-memorial" : "bg-card shadow-sm",
+    isMe ? "border-leaf ring-2 ring-leaf" : focused ? "ring-1 ring-leaf" : "border-line",
+  ].join(" ");
+  const body = (
+    <>
       <span className={dead ? "opacity-75 grayscale-[60%]" : undefined}>
         <Avatar person={person} size={44} />
       </span>
@@ -340,6 +349,42 @@ function PersonCard({
           {relation.label}
         </span>
       )}
-    </button>
+    </>
+  );
+
+  if (!focused) {
+    return (
+      <button type="button" onClick={onClick} className={`${look} cursor-pointer transition-shadow hover:shadow-md`}>
+        {body}
+      </button>
+    );
+  }
+  // The focused card: tap the person for details, or a spouse's name to move to them.
+  return (
+    <div data-focused className={look}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`${person.name}, shown in the middle. Open details`}
+        className="flex w-full cursor-pointer flex-col items-center"
+      >
+        {body}
+      </button>
+      {spouses && spouses.length > 0 && (
+        <div className="mt-1.5 w-full space-y-1 border-t border-leaf/30 pt-1.5">
+          {spouses.map((spouse) => (
+            <button
+              key={spouse.id}
+              type="button"
+              onClick={() => onSpouse?.(spouse.id)}
+              className="block w-full cursor-pointer rounded-md px-0.5 text-center leading-tight hover:bg-card/70"
+            >
+              <span className="block truncate text-[11px] font-medium text-ink">{spouse.name}</span>
+              <span className="block truncate text-[9px] text-muted">{spouse.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
