@@ -222,3 +222,40 @@ test("layout keeps a married-in spouse's other marriage beside them", () => {
   assert.equal(node("tom").y, node("linda").y, "Tom on Linda's row");
   assert.deepEqual(layout.couples.map((c) => [c.key, c.divorced]), [["david+linda", true], ["linda+tom", false]]);
 });
+
+test("someone with only one parent entered is described through that parent", () => {
+  // Uncle Dan married Benita; Eddie is listed only as Benita's son.
+  const family: Family = {
+    name: "One parent",
+    people: [
+      { id: "gran", name: "Gran", gender: "female" },
+      { id: "mom", name: "Mom", gender: "female" },
+      { id: "me", name: "Me" },
+      { id: "dan", name: "Dan", gender: "male" },
+      { id: "benita", name: "Benita", gender: "female" },
+      { id: "eddie", name: "Eddie", gender: "male" },
+      { id: "eddiekid", name: "Eddie's kid", gender: "female" },
+      { id: "benitasmom", name: "Benita's mom", gender: "female" },
+      { id: "loner", name: "Loner" },
+    ],
+    parentLinks: [
+      { parentId: "gran", childId: "mom" },
+      { parentId: "gran", childId: "dan" },
+      { parentId: "mom", childId: "me" },
+      { parentId: "benita", childId: "eddie" },
+      { parentId: "eddie", childId: "eddiekid" },
+      { parentId: "benitasmom", childId: "benita" },
+    ],
+    spouseLinks: [{ aId: "dan", bId: "benita" }],
+  };
+  const idx = buildIndex(family);
+  const r = (other: string) => relationship(idx, "me", other);
+  assert.equal(r("benita").label, "Aunt by marriage");
+  assert.equal(r("eddie").label, "Son of aunt by marriage");
+  assert.equal(r("eddie").phrase, "the son of your aunt by marriage");
+  assert.equal(r("eddiekid").label, "Granddaughter of aunt by marriage");
+  assert.equal(r("benitasmom").label, "Mother of aunt by marriage");
+  assert.equal(r("loner").kind, "none");
+  // Seen from Dan, Benita's son is his stepson, as before.
+  assert.equal(relationship(idx, "dan", "eddie").label, "Stepson");
+});

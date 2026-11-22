@@ -65,6 +65,9 @@ const ordinal = (n: number) => ORDINALS[n] ?? `${n}th`;
 const removed = (n: number) =>
   n === 0 ? "" : n === 1 ? " once removed" : n === 2 ? " twice removed" : ` ${n} times removed`;
 
+/** How many people away a relationship may be described "through" (e.g. son of your cousin's wife). */
+const MAX_HOPS = 2;
+
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Name for someone `down` generations below an ancestor that is `up` generations above you. */
@@ -111,7 +114,7 @@ function closestBlood(index: FamilyIndex, from: string, candidates: string[]) {
 }
 
 /** What `otherId` is to `meId` — "Dana is your first cousin once removed". */
-export function relationship(index: FamilyIndex, meId: string, otherId: string): Relationship {
+export function relationship(index: FamilyIndex, meId: string, otherId: string, hops = 0): Relationship {
   if (meId === otherId) {
     return { kind: "self", label: "You", phrase: "you", commonAncestorIds: [] };
   }
@@ -199,6 +202,39 @@ export function relationship(index: FamilyIndex, meId: string, otherId: string):
     const viaMyEx = findBlood(index, exId, otherId);
     if (!viaMyEx) continue;
     return yours("marriage", `${spouseTitle(index, meId, exId)}'s ${bloodLabel(viaMyEx.up, viaMyEx.down, g)}`);
+  }
+
+  // Nothing direct. Someone with only one parent entered (or whose link to us
+  // runs through a child) can still be described through that person, without
+  // guessing the missing parent: "Son of your aunt by marriage".
+  if (hops < MAX_HOPS) {
+    const via = (ids: string[], word: (gender: Gender | undefined) => string) => {
+      for (const id of ids) {
+        const r = relationship(index, meId, id, hops + 1);
+        if (r.kind === "none") continue;
+        if (r.kind === "self") return yours("marriage", word(g));
+        let relative = r.label.charAt(0).toLowerCase() + r.label.slice(1);
+        let mine = word(g);
+        // Two steps the same way read better as one: "daughter of son of X" -> "granddaughter of X".
+        const twice = /^(son|daughter|child|father|mother|parent) of (.+)$/.exec(relative);
+        const down = (w: string) => ["son", "daughter", "child"].includes(w);
+        if (twice && down(twice[1]) === down(mine)) {
+          mine = `grand${mine === "child" ? "child" : mine}`;
+          relative = twice[2];
+        }
+        return {
+          kind: "marriage" as const,
+          label: `${capitalize(mine)} of ${relative}`,
+          phrase: `the ${mine} of your ${relative}`,
+          commonAncestorIds: [],
+        };
+      }
+      return null;
+    };
+    const throughParent = via(index.parentsOf(otherId), (gender) => pick(gender, "son", "daughter", "child"));
+    if (throughParent) return throughParent;
+    const throughChild = via(index.childrenOf(otherId), (gender) => pick(gender, "father", "mother", "parent"));
+    if (throughChild) return throughChild;
   }
 
   return {
