@@ -13,8 +13,9 @@ import {
   startEmptyFamily,
   useAppState,
 } from "@/lib/store";
-import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode } from "@/lib/prefs";
+import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode, setTreeStyle, useTreeStyle } from "@/lib/prefs";
 import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
+import { FocusView } from "./FocusView";
 import { InviteDialog } from "./InviteDialog";
 import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ListView } from "./ListView";
@@ -54,11 +55,35 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const [showKeepAccess, setShowKeepAccess] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const viewMode = useViewMode();
+  const treeStyle = useTreeStyle();
+  const focusMode = viewMode === "tree" && treeStyle === "focus";
+  // People visited in Focus view, for its Back button.
+  const [focusHistory, setFocusHistory] = useState<string[]>([]);
   const treeRef = useRef<TreeViewHandle>(null);
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
 
   const selected = selectedId ? index.byId.get(selectedId) : undefined;
+  // Focus view centers on the selected person, else you, else the oldest person with no parents.
+  const focusCenter = useMemo(() => {
+    if (selectedId && index.byId.has(selectedId)) return selectedId;
+    if (me) return me;
+    const roots = family.people.filter((p) => index.parentsOf(p.id).length === 0);
+    const oldest = [...(roots.length ? roots : family.people)].sort(
+      (a, b) => (a.birthYear ?? Infinity) - (b.birthYear ?? Infinity),
+    )[0];
+    return oldest?.id ?? null;
+  }, [selectedId, me, family, index]);
+  const goToInFocus = (id: string) => {
+    if (focusCenter && id !== focusCenter) setFocusHistory((h) => [...h, focusCenter].slice(-50));
+    setSelectedId(id);
+  };
+  const focusBack = () => {
+    const previous = focusHistory[focusHistory.length - 1];
+    if (!previous) return;
+    setFocusHistory((h) => h.slice(0, -1));
+    setSelectedId(previous);
+  };
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],
@@ -403,6 +428,20 @@ export function FamilyApp({ session }: { session: SessionState }) {
               />
             ) : viewMode === "map" ? (
               <MapView family={family} selectedId={selectedId} onSelect={setSelectedId} />
+            ) : focusMode && focusCenter ? (
+              <FocusView
+                index={index}
+                centerId={focusCenter}
+                meId={me}
+                relations={relations}
+                canGoBack={focusHistory.some((id) => index.byId.has(id))}
+                onCenter={goToInFocus}
+                onBack={focusBack}
+                onDetails={(id) => {
+                  setSelectedId(id);
+                  setDetailsId(id);
+                }}
+              />
             ) : (
               <TreeView
                 ref={treeRef}
@@ -442,13 +481,44 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 <SearchBox
                   people={family.people}
                   onPick={(id) => {
+                    if (focusMode) {
+                      goToInFocus(id);
+                      return;
+                    }
                     setFocusTick((n) => n + 1);
                     focusPerson(id);
                   }}
                 />
               </div>
             </div>
-            {!me && showRelations && !selected && viewMode !== "map" && (
+            {viewMode === "tree" && (
+              <div
+                role="group"
+                aria-label="How much of the tree to show"
+                className="absolute top-[4.25rem] left-4 z-[5] flex overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
+              >
+                {(
+                  [
+                    ["focus", "Focus"],
+                    ["whole", "Whole tree"],
+                  ] as const
+                ).map(([style, label]) => (
+                  <button
+                    key={style}
+                    type="button"
+                    aria-pressed={treeStyle === style}
+                    onClick={() => setTreeStyle(style)}
+                    className={[
+                      "cursor-pointer px-3 py-1 font-medium",
+                      treeStyle === style ? "bg-leaf text-white" : "text-ink hover:bg-paper",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!me && showRelations && !selected && viewMode !== "map" && !focusMode && (
               <p className="pointer-events-none absolute bottom-4 left-1/2 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full border border-line bg-card px-4 py-2 text-center text-sm text-ink shadow-sm">
                 Choose who you are under <strong className="font-semibold">I am</strong> in the ⋯ menu to see how
                 you’re related to everyone.
@@ -457,7 +527,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
           </>
         )}
 
-        {selected && (
+        {selected && !focusMode && (
           <PersonPanel
             person={selected}
             index={index}

@@ -83,3 +83,55 @@ export function useShowRelations(): boolean {
     () => true,
   );
 }
+
+/**
+ * In Tree mode: the whole drawn tree, or Focus (one person with their
+ * grandparents, parents, siblings, spouse and children). Focus starts as the
+ * default on phones and whole tree on bigger screens, until the viewer picks.
+ */
+export type TreeStyle = "whole" | "focus";
+const TREE_STYLE_KEY = "family-reunion:tree-style";
+const treeStyleListeners = new Set<() => void>();
+let treeStyle: TreeStyle | null = null;
+
+function getTreeStyle(): TreeStyle {
+  if (treeStyle === null) {
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(TREE_STYLE_KEY);
+    } catch {
+      // Storage blocked: fall back to the screen-size default.
+    }
+    treeStyle =
+      saved === "whole" || saved === "focus"
+        ? saved
+        : window.matchMedia("(max-width: 767px)").matches
+          ? "focus"
+          : "whole";
+  }
+  return treeStyle;
+}
+
+export function setTreeStyle(style: TreeStyle) {
+  treeStyle = style;
+  try {
+    window.localStorage.setItem(TREE_STYLE_KEY, style);
+  } catch {
+    // Storage is blocked: the choice just won't be remembered next time.
+  }
+  treeStyleListeners.forEach((listener) => listener());
+}
+
+/** The viewer's choice, remembered on this device. */
+export function useTreeStyle(): TreeStyle {
+  return useSyncExternalStore(
+    (listener) => {
+      treeStyleListeners.add(listener);
+      return () => {
+        treeStyleListeners.delete(listener);
+      };
+    },
+    getTreeStyle,
+    () => "whole",
+  );
+}
