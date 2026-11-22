@@ -294,17 +294,19 @@ export function TreeView({
               }}
               aria-pressed={isSelected}
               className={[
-                "absolute flex cursor-pointer flex-col items-center rounded-2xl border bg-card px-2 text-center shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf",
+                "absolute flex cursor-pointer flex-col items-center rounded-2xl border px-2 text-center transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf",
+                // People who have died: a quieter card, so the living stand out a little.
+                person.deathYear ? "bg-memorial" : "bg-card shadow-sm",
                 isSelected ? "border-ink ring-2 ring-ink" : isMe ? "border-leaf ring-2 ring-leaf" : "border-line",
                 compact ? "pt-2.5 pb-1.5" : "pt-3 pb-2",
               ].join(" ")}
               style={{ left: node.x, top: node.y, width: CARD_W, height: CARD_H }}
             >
-              <span className={person.deathYear ? "opacity-80 grayscale-[35%]" : undefined}>
+              <span className={person.deathYear ? "opacity-75 grayscale-[60%]" : undefined}>
                 <Avatar person={person} size={compact ? 44 : 56} />
               </span>
               <span
-                className={`${compact ? "mt-1.5" : "mt-2"} line-clamp-2 text-[13px] leading-tight font-semibold text-ink`}
+                className={`${compact ? "mt-1.5" : "mt-2"} line-clamp-2 text-[13px] leading-tight font-semibold ${person.deathYear ? "text-ink/70" : "text-ink"}`}
               >
                 {person.name}
               </span>

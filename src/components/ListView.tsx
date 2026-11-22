@@ -135,12 +135,12 @@ export function ListView({
             onSelect(person.id);
           }}
           aria-pressed={isSelected}
-          className={`flex min-w-0 cursor-pointer items-center gap-1.5 rounded-lg border bg-card py-0.5 pr-2.5 pl-0.5 text-left hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${ring}`}
+          className={`flex min-w-0 cursor-pointer items-center gap-1.5 rounded-lg border ${person.deathYear ? "bg-memorial" : "bg-card"} py-0.5 pr-2.5 pl-0.5 text-left hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${ring}`}
         >
-          <span className={person.deathYear ? "opacity-80 grayscale-[35%]" : undefined}>
+          <span className={person.deathYear ? "opacity-75 grayscale-[60%]" : undefined}>
             <Avatar person={person} size={22} />
           </span>
-          <span className="min-w-0 truncate text-sm leading-tight font-semibold text-ink">
+          <span className={`min-w-0 truncate text-sm leading-tight font-semibold ${person.deathYear ? "text-ink/70" : "text-ink"}`}>
             {person.name}
             {person.nickname && <span className="font-normal text-muted italic"> “{person.nickname}”</span>}
             {years && <span className="text-[11px] font-normal text-muted"> · {years}</span>}
@@ -158,13 +158,13 @@ export function ListView({
           onSelect(person.id);
         }}
         aria-pressed={isSelected}
-        className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border bg-card py-1 pr-3 pl-1 text-left hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${ring}`}
+        className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border ${person.deathYear ? "bg-memorial" : "bg-card"} py-1 pr-3 pl-1 text-left hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${ring}`}
       >
-        <span className={person.deathYear ? "opacity-80 grayscale-[35%]" : undefined}>
+        <span className={person.deathYear ? "opacity-75 grayscale-[60%]" : undefined}>
           <Avatar person={person} size={30} />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-sm leading-tight font-semibold text-ink">
+          <span className={`block truncate text-sm leading-tight font-semibold ${person.deathYear ? "text-ink/70" : "text-ink"}`}>
             {person.name}
             {person.nickname && <span className="font-normal text-muted italic"> “{person.nickname}”</span>}
           </span>

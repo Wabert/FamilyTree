@@ -3,6 +3,8 @@
 @theme inline {
   --color-paper: #f6f1e8;
   --color-card: #fffdf9;
+  /* Cards for people who have died: a little greyer than the page, so they read as quieter. */
+  --color-memorial: #efeae2;
   --color-ink: #26221c;
   --color-muted: #776e61;
   --color-line: #d8cdbb;
