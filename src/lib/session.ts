@@ -69,8 +69,15 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
 
 function authMessage(error: { message: string; code?: string }): string {
   switch (error.code) {
-    case "over_email_send_rate_limit":
+    case "over_email_send_rate_limit": {
+      // Supabase uses this code both for its short wait between emails to one
+      // address and for the project's hourly limit; the message says which.
+      const wait = /after (\d+) seconds?/i.exec(error.message);
+      if (wait) {
+        return `An email was just sent to this address. Please wait ${wait[1]} seconds before asking for another, or use the one you already have.`;
+      }
       return "Too many sign-in emails have been sent in the last hour. Please try again later.";
+    }
     case "email_address_not_authorized":
       return "Email sign-in isn’t set up for that address yet. If you were sent an invite link, you can join without an email.";
     case "anonymous_provider_disabled":
