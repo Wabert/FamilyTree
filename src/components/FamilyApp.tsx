@@ -14,6 +14,7 @@ import {
   useAppState,
 } from "@/lib/store";
 import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode } from "@/lib/prefs";
+import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
 import { InviteDialog } from "./InviteDialog";
 import { ListView } from "./ListView";
 import { MapView } from "./MapView";
@@ -48,6 +49,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const [invite, setInvite] = useState<{ link: string; localOnly: boolean } | null>(null);
   const [notice, setNotice] = useState("");
   const [showMembers, setShowMembers] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const viewMode = useViewMode();
   const treeRef = useRef<TreeViewHandle>(null);
@@ -286,6 +288,18 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     </button>
                   </>
                 )}
+                {session.canCreate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeMenu();
+                      setShowHistory(true);
+                    }}
+                    className={menuItem}
+                  >
+                    Change history
+                  </button>
+                )}
                 <button type="button" onClick={switchFamily} className={menuItem}>
                   Switch or start another tree
                 </button>
@@ -455,6 +469,8 @@ export function FamilyApp({ session }: { session: SessionState }) {
       {showMembers && shared && manager && (
         <MembersDialog family={family} currentUserId={userId} myRole={role} onClose={() => setShowMembers(false)} />
       )}
+
+      {showHistory && shared && session.canCreate && <ChangeHistoryDialog onClose={() => setShowHistory(false)} />}
 
       {invite && inviteCode && (
         <InviteDialog

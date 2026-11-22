@@ -358,3 +358,52 @@ export async function setMemberRole(
   const { error } = await db.rpc("set_member_role", { fid: familyId, member: memberUserId, new_role: role });
   if (error) throw new Error(organizerOnly(error));
 }
+
+// ---------------------------------------------------------------------------
+// Owner tools
+// ---------------------------------------------------------------------------
+
+/** One entry in the private change log (supabase/update-6 and update-7). */
+export interface Change {
+  id: number;
+  at: string;
+  tree: string | null;
+  who: string | null;
+  action: string;
+  subject: string | null;
+  /** Edits: {field: {from, to}}. Additions and removals: {field: value}. */
+  details: Record<string, unknown> | null;
+  familyId: string | null;
+}
+
+/** Newest first. Only approved tree creators get an answer; everyone else is refused by the database. */
+export async function listChanges(
+  db: SupabaseClient,
+  options: { familyId?: string | null; beforeId?: number | null; limit?: number },
+): Promise<Change[]> {
+  const { data, error } = await db.rpc("list_changes", {
+    fid: options.familyId ?? null,
+    before_id: options.beforeId ?? null,
+    max_rows: options.limit ?? 100,
+  });
+  if (error) {
+    throw new Error(
+      /function .* does not exist|could not find the function/i.test(error.message)
+        ? "The database needs update 7 before the change history can be shown."
+        : /only the site owner/i.test(error.message)
+          ? "Only the site owner can see the change history."
+          : friendly(error),
+    );
+  }
+  const rows = (data ?? []) as {
+    id: number;
+    at: string;
+    tree: string | null;
+    who: string | null;
+    action: string;
+    subject: string | null;
+    details: Record<string, unknown> | null;
+    family_id: string | null;
+  }[];
+  return rows.map((row) => ({ ...row, familyId: row.family_id }));
+}
