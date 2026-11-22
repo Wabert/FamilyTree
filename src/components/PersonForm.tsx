@@ -7,6 +7,7 @@ import { toPhotoDataUrl, toSquareDataUrl } from "@/lib/images";
 import { addPerson, updatePerson, type PersonFields } from "@/lib/store";
 import { MAX_GALLERY, type Family, type Gender, type Person } from "@/lib/types";
 import { Avatar } from "./Avatar";
+import { PersonName, PersonPicker, type PickerChoice } from "./PersonPicker";
 import { CityInput } from "./CityInput";
 import { inputClass } from "./ui";
 
@@ -391,9 +392,7 @@ export function PersonForm({
 
 const NEW_PERSON = "__new__";
 
-const optionLabel = (p: Person) => (p.birthYear ? `${p.name} (b. ${p.birthYear})` : p.name);
-
-/** A dropdown of people in the tree, with a last option to type in someone who isn't there yet. */
+/** A button showing who is chosen; tapping it opens a searchable list of everyone in the tree. */
 function PersonSelect({
   label,
   emptyLabel,
@@ -411,19 +410,46 @@ function PersonSelect({
   newName: string;
   onNewName(name: string): void;
 }) {
+  const [open, setOpen] = useState(false);
+  const chosen = value && value !== NEW_PERSON ? people.find((p) => p.id === value) : undefined;
+
+  const pick = (choice: PickerChoice) => {
+    setOpen(false);
+    if (choice.type === "none") onChange("");
+    else if (choice.type === "person") onChange(choice.id);
+    else {
+      onChange(NEW_PERSON);
+      if (choice.name) onNewName(choice.name);
+    }
+  };
+
   return (
     <div>
-      <Field label={label}>
-        <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">{emptyLabel}</option>
-          {people.map((p) => (
-            <option key={p.id} value={p.id}>
-              {optionLabel(p)}
-            </option>
-          ))}
-          <option value={NEW_PERSON}>+ Add a new person…</option>
-        </select>
-      </Field>
+      <span className="mb-1 block text-sm font-medium text-ink">{label}</span>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={`${label}: ${chosen ? chosen.name : value === NEW_PERSON ? "a new person" : emptyLabel}. Tap to change.`}
+        className={`${inputClass} flex cursor-pointer items-center gap-2 text-left`}
+      >
+        {chosen ? (
+          <>
+            <Avatar person={chosen} size={24} />
+            <span className="min-w-0 flex-1 truncate">
+              <PersonName person={chosen} />
+              {chosen.birthYear && <span className="text-muted"> · b. {chosen.birthYear}</span>}
+            </span>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-muted">
+            {value === NEW_PERSON ? "+ A new person (type their name below)" : emptyLabel}
+          </span>
+        )}
+        <span aria-hidden className="shrink-0 text-muted">
+          ⌕
+        </span>
+      </button>
       {value === NEW_PERSON && (
         <input
           className={`${inputClass} mt-2`}
@@ -431,8 +457,18 @@ function PersonSelect({
           placeholder="Their full name"
           value={newName}
           onChange={(e) => onNewName(e.target.value)}
-          autoFocus
+          autoFocus={!newName}
           autoComplete="off"
+        />
+      )}
+      {open && (
+        <PersonPicker
+          title={label}
+          emptyLabel={emptyLabel}
+          people={people}
+          selectedId={value === NEW_PERSON ? "__none__" : value}
+          onPick={pick}
+          onClose={() => setOpen(false)}
         />
       )}
     </div>
