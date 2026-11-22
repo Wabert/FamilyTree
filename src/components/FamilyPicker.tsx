@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { createFamily, joinWithCode, openFamily, signOut, type SessionState } from "@/lib/session";
+import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ErrorNote, Screen, TreeMark, inputClass, primaryButton, secondaryButton } from "./ui";
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -13,6 +14,7 @@ export function FamilyPicker({ session }: { session: SessionState }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [keepAccess, setKeepAccess] = useState(false);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -39,7 +41,7 @@ export function FamilyPicker({ session }: { session: SessionState }) {
     if (
       session.isGuest &&
       !window.confirm(
-        "You joined without an email, so signing out means you’ll need an invite link to get back in. Sign out anyway?",
+        "You joined without an email, so signing out means you’ll need an invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Keep your access” first. Sign out anyway?",
       )
     ) {
       return;
@@ -118,7 +120,16 @@ export function FamilyPicker({ session }: { session: SessionState }) {
           <button type="button" onClick={onSignOut} className="cursor-pointer underline">
             Sign out
           </button>
+          {session.isGuest && (
+            <>
+              {" · "}
+              <button type="button" onClick={() => setKeepAccess(true)} className="cursor-pointer font-semibold text-leaf-dark underline">
+                Keep your access: add your email
+              </button>
+            </>
+          )}
         </p>
+        {keepAccess && <KeepAccessDialog onClose={() => setKeepAccess(false)} />}
       </div>
     </Screen>
   );

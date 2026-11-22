@@ -110,7 +110,12 @@ function start() {
 
 async function onSession(session: Session | null) {
   const userId = session?.user.id ?? null;
-  if (state.phase !== "loading" && userId === state.userId) return; // token refresh, tab focus, etc.
+  if (state.phase !== "loading" && userId === state.userId) {
+    // Token refresh, tab focus, or a guest who just confirmed an email: same person, so
+    // only their email and guest status can have changed.
+    if (session) set({ email: session.user.email || null, isGuest: session.user.is_anonymous ?? false });
+    return;
+  }
 
   if (!session) {
     closeRemoteFamily();
@@ -211,6 +216,45 @@ export async function sendSignInEmail(email: string) {
 export async function verifyEmailCode(email: string, code: string) {
   const { error } = await supabase!.auth.verifyOtp({ email, token: code, type: "email" });
   if (error) throw new Error(authMessage(error));
+}
+
+/**
+ * For a guest: attach an email to their account, keeping everything they have
+ * (their trees, "This is me", what they added). Supabase emails a confirmation;
+ * until it's confirmed they are still a guest.
+ */
+export async function addEmailToGuest(email: string) {
+  const { error } = await supabase!.auth.updateUser({ email }, { emailRedirectTo: window.location.origin });
+  if (!error) return;
+  if (error.code === "email_exists" || /already (been )?registered|already exists/i.test(error.message)) {
+    throw new Error(
+      "That email already has its own account here. To use it, sign out and sign in with that email, then open the invite link again to join. This guest account’s “This is me” won’t carry over.",
+    );
+  }
+  if (error.code === "email_address_not_authorized") {
+    throw new Error(
+      "The app can’t send email to that address yet. Ask whoever runs the family tree to finish setting up email.",
+    );
+  }
+  throw new Error(authMessage(error));
+}
+
+/** The 6-digit code from the confirmation email, if the email shows one. */
+export async function confirmGuestEmail(email: string, code: string) {
+  const { error } = await supabase!.auth.verifyOtp({ email, token: code, type: "email_change" });
+  if (error) throw new Error(authMessage(error));
+}
+
+/**
+ * After the guest tapped the link in the email (perhaps in another app or browser):
+ * ask Supabase again whether the email is confirmed. True when it is.
+ */
+export async function checkGuestEmailConfirmed(): Promise<boolean> {
+  const { data, error } = await supabase!.auth.refreshSession();
+  if (error) throw new Error(authMessage(error));
+  const user = data.user;
+  if (user) set({ email: user.email || null, isGuest: user.is_anonymous ?? false });
+  return !!user && !user.is_anonymous && !!user.email;
 }
 
 export async function continueAsGuest() {

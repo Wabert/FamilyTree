@@ -16,6 +16,7 @@ import {
 import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode } from "@/lib/prefs";
 import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
 import { InviteDialog } from "./InviteDialog";
+import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ListView } from "./ListView";
 import { MapView } from "./MapView";
 import { MembersDialog } from "./MembersDialog";
@@ -50,6 +51,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const [notice, setNotice] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showKeepAccess, setShowKeepAccess] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const viewMode = useViewMode();
   const treeRef = useRef<TreeViewHandle>(null);
@@ -156,7 +158,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
     if (
       session.isGuest &&
       !window.confirm(
-        "You joined without an email, so signing out means you’ll need the invite link to get back in. Sign out anyway?",
+        "You joined without an email, so signing out means you’ll need the invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Keep your access: add your email” in the ⋯ menu first. Sign out anyway?",
       )
     ) {
       return;
@@ -268,6 +270,18 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 <p className="border-b border-line px-4 py-2.5 text-xs text-muted">
                   {session.email ? `Signed in as ${session.email}` : "Joined on this device without an email"}
                 </p>
+                {session.isGuest && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeMenu();
+                      setShowKeepAccess(true);
+                    }}
+                    className={`${menuItem} font-semibold text-leaf-dark`}
+                  >
+                    Keep your access: add your email
+                  </button>
+                )}
                 <button type="button" onClick={showInvite} className={menuItem}>
                   Invite family
                 </button>
@@ -471,6 +485,8 @@ export function FamilyApp({ session }: { session: SessionState }) {
       )}
 
       {showHistory && shared && session.canCreate && <ChangeHistoryDialog onClose={() => setShowHistory(false)} />}
+
+      {showKeepAccess && <KeepAccessDialog onClose={() => setShowKeepAccess(false)} />}
 
       {invite && inviteCode && (
         <InviteDialog
