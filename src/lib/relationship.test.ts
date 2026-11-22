@@ -279,9 +279,43 @@ test("a child of only one of a couple gets its own, lower line", () => {
   const layout = computeLayout(family);
   const toLemuel = layout.paths.find((p) => p.key.endsWith(">lemuel"))!;
   const toEddie = layout.paths.find((p) => p.key.endsWith(">eddie"))!;
-  assert.equal(toLemuel.oneParent, false);
-  assert.equal(toEddie.oneParent, true);
+  assert.equal(toLemuel.otherFamily, false);
+  assert.equal(toEddie.otherFamily, true);
   // The horizontal run is the "V<y>" before "H": Eddie's sits lower than the shared one.
   const runY = (d: string) => Number(/V([\d.]+) H/.exec(d)![1]);
   assert.ok(runY(toEddie.d) > runY(toLemuel.d));
+});
+
+test("a second partner's children get their own, lower line", () => {
+  // Frank & Benita have two children; Benita & Tbd have Eddie.
+  const family: Family = {
+    name: "Two partners",
+    people: [
+      { id: "frank", name: "Frank", gender: "male" },
+      { id: "benita", name: "Benita", gender: "female" },
+      { id: "tbd", name: "TBD", gender: "male" },
+      { id: "lemuel", name: "Lemuel", birthYear: 1900 },
+      { id: "gloria", name: "Gloria", birthYear: 1902 },
+      { id: "eddie", name: "Eddie", birthYear: 1905 },
+    ],
+    parentLinks: [
+      { parentId: "frank", childId: "lemuel" },
+      { parentId: "benita", childId: "lemuel" },
+      { parentId: "frank", childId: "gloria" },
+      { parentId: "benita", childId: "gloria" },
+      { parentId: "benita", childId: "eddie" },
+      { parentId: "tbd", childId: "eddie" },
+    ],
+    spouseLinks: [
+      { aId: "frank", bId: "benita" },
+      { aId: "benita", bId: "tbd" },
+    ],
+  };
+  const layout = computeLayout(family);
+  const path = (id: string) => layout.paths.find((p) => p.key.endsWith(`>${id}`))!;
+  assert.equal(path("lemuel").otherFamily, false);
+  assert.equal(path("gloria").otherFamily, false);
+  assert.equal(path("eddie").otherFamily, true);
+  const runY = (d: string) => Number(/V([\d.]+) H/.exec(d)![1]);
+  assert.ok(runY(path("eddie").d) > runY(path("lemuel").d));
 });

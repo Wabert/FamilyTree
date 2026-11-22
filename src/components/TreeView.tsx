@@ -273,15 +273,15 @@ export function TreeView({
               </g>
             );
           })}
-          {/* One-parent lines last, so they sit on top where they cross the shared line. */}
+          {/* Other families' lines last, so they sit on top where they cross the main line. */}
           {[...layout.paths]
-            .sort((a, b) => Number(a.oneParent) - Number(b.oneParent))
+            .sort((a, b) => Number(a.otherFamily) - Number(b.otherFamily))
             .map((p) => (
               <path
                 key={p.key}
                 d={p.d}
                 strokeDasharray={p.dashed ? "5 6" : undefined}
-                stroke={p.oneParent ? "var(--color-one-parent)" : undefined}
+                stroke={p.otherFamily ? "var(--color-one-parent)" : undefined}
               />
             ))}
         </svg>

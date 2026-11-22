@@ -46,10 +46,11 @@ export interface LayoutPath {
   /** True when the child sits somewhere other than directly under these parents. */
   dashed: boolean;
   /**
-   * The child of only one person in a couple (e.g. Benita's son, but not Frank's).
-   * Drawn in its own color, on a line a little below the couple's shared one.
+   * One of several families hanging from the same row of cards: a child of
+   * Benita and her second partner, or of Benita alone, rather than of Benita and
+   * Frank. Drawn in its own color, on a line a little below the main family's.
    */
-  oneParent: boolean;
+  otherFamily: boolean;
 }
 
 export interface CoupleLine {
@@ -248,20 +249,50 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
   };
   roots.forEach(collect);
 
+  // Which parents each child hangs from, per row of cards. When a row has more
+  // than one family (Frank & Benita's children, Benita & Tom's, Benita's alone),
+  // each gets its own line level so they don't merge into one.
+  const parentSets = (personId: string) => {
+    const byUnit = new Map<Unit, string[]>();
+    for (const parentId of index.parentsOf(personId)) {
+      const unit = unitOf.get(parentId);
+      if (unit) byUnit.set(unit, [...(byUnit.get(unit) ?? []), parentId]);
+    }
+    return [...byUnit].map(([unit, parentIds]) => ({
+      unit,
+      slots: parentIds.map((id) => unit.members.indexOf(id)).sort((a, b) => a - b),
+    }));
+  };
+  const laneOf = new Map<Unit, Map<string, number>>();
+  {
+    const counts = new Map<Unit, Map<string, { couple: boolean; children: number }>>();
+    for (const person of family.people) {
+      for (const { unit, slots } of parentSets(person.id)) {
+        const key = slots.join(",");
+        const sets = counts.get(unit) ?? new Map<string, { couple: boolean; children: number }>();
+        const entry = sets.get(key) ?? { couple: slots.length === 2, children: 0 };
+        entry.children++;
+        sets.set(key, entry);
+        counts.set(unit, sets);
+      }
+    }
+    // The main family (a couple with the most children) keeps the usual line.
+    for (const [unit, sets] of counts) {
+      const order = [...sets].sort(
+        ([ka, a], [kb, b]) => Number(b.couple) - Number(a.couple) || b.children - a.children || ka.localeCompare(kb),
+      );
+      laneOf.set(unit, new Map(order.map(([key], lane) => [key, lane])));
+    }
+  }
+  const LANE_STEP = Math.min(10, ROW_GAP / 4);
+
   const paths: LayoutPath[] = [];
   for (const person of family.people) {
     const child = position.get(person.id);
     if (!child) continue;
     const childUnit = unitOf.get(person.id)!;
 
-    const byUnit = new Map<Unit, string[]>();
-    for (const parentId of index.parentsOf(person.id)) {
-      const unit = unitOf.get(parentId);
-      if (unit) byUnit.set(unit, [...(byUnit.get(unit) ?? []), parentId]);
-    }
-
-    for (const [unit, parentIds] of byUnit) {
-      const slots = parentIds.map((id) => unit.members.indexOf(id)).sort((a, b) => a - b);
+    for (const { unit, slots } of parentSets(person.id)) {
       const top = rowY(unit.depth);
       const bottom = top + CARD_H;
       const isCouple = slots.length === 2 && slots[1] - slots[0] === 1;
@@ -274,14 +305,13 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
       const cy = child.y;
 
       const direct = unit.children.includes(childUnit);
-      // Only one of a couple is this child's parent: run on a line of its own.
-      const oneParent = unit.members.length > 1 && slots.length === 1;
-      const midY = bottom + ROW_GAP / 2 + (oneParent ? Math.min(10, ROW_GAP / 4) : 0);
+      const lane = laneOf.get(unit)?.get(slots.join(",")) ?? 0;
+      const midY = bottom + ROW_GAP / 2 + lane * LANE_STEP;
       const bendY = (bottom + cy) / 2;
       paths.push({
         key: `${unit.members[slots[0]]}>${person.id}`,
         dashed: !direct,
-        oneParent,
+        otherFamily: lane > 0,
         d: direct
           ? `M${sx},${sy} V${midY} H${cx} V${cy}`
           : `M${sx},${bottom} C${sx},${bendY} ${cx},${bendY} ${cx},${cy}`,
