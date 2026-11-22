@@ -48,8 +48,8 @@ tests), `npm run lint`, `npm run build`.
    Then do the same with `supabase/update-3-moderators.sql`,
    `supabase/update-4-photo-gallery.sql`, `supabase/update-5-tree-creators.sql`,
    `supabase/update-6-change-log.sql`, `supabase/update-7-change-history-screen.sql`,
-   `supabase/update-8-marriage-status.sql` and `supabase/update-9-invite-tree-name.sql`,
-   in that order. An existing project only needs the update files it hasn't had yet.
+   `supabase/update-8-marriage-status.sql`, `supabase/update-9-invite-tree-name.sql` and
+   `supabase/update-10-guests-view-only.sql`, in that order. An existing project only needs the update files it hasn't had yet.
    After update 5, only approved accounts can start new trees: sign in once by
    email, then approve yourself with the query at the bottom of that file.
    Update 6 keeps a private log of every change; read it in the dashboard under
@@ -65,9 +65,10 @@ How people get in:
 
 - **Organizer:** signs in by email (with an approved account), creates the family tree, then uses **Invite** to
   get a link and QR code.
-- **Everyone else:** opens the link and taps **Join the family tree**. No account
-  needed; they stay signed in on that device. Anyone with the link can join and edit,
-  so share it only with family.
+- **Everyone else:** opens the link and taps **Join**. No account needed to look
+  around; they stay signed in on that device. To add or edit people they sign up
+  with their email (update 10 makes guests view-only). Anyone with the link can
+  join, so share it only with family.
 
 Things to know before a real reunion:
 

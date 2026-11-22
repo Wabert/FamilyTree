@@ -144,8 +144,8 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
             {treeName && treeName !== "invalid" ? `Join ${treeName}` : "Join the family tree"}
           </button>
           <p className="mt-2 text-xs text-muted">
-            No account needed. You’ll stay signed in on this device; to use more than one device, sign in with your
-            email below instead.
+            No account needed to look around. To add or edit people, or to use more than one device, sign up with
+            your email below instead.
           </p>
         </div>
       )}
@@ -153,7 +153,7 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
       <form onSubmit={onEmail} className={`space-y-3 ${inviteCode ? "mt-6 border-t border-line pt-6" : "mt-6"}`}>
         <label className="block">
           <span className="mb-1 block text-sm font-medium">
-            {inviteCode ? "Or sign in with your email" : "Sign in with your email"}
+            {inviteCode ? "Or sign up with your email to make updates" : "Sign in with your email"}
           </span>
           <input
             className={inputClass}

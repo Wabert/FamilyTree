@@ -19,6 +19,7 @@ export function PersonDetails({
   relation,
   showRelation,
   canRemove,
+  canEdit,
   onClose,
   onSelect,
   onEdit,
@@ -31,6 +32,8 @@ export function PersonDetails({
   /** The viewer can turn relationship labels off in the menu. */
   showRelation: boolean;
   canRemove: boolean;
+  /** False for guests: the edit buttons ask them to sign up with email instead. */
+  canEdit: boolean;
   onClose(): void;
   onSelect(id: string): void;
   onEdit(): void;
@@ -131,11 +134,20 @@ export function PersonDetails({
               </>
             ) : (
               <p className="text-sm text-muted">
-                No photos yet. Add up to {MAX_GALLERY} with{" "}
-                <button type="button" onClick={onEdit} className="cursor-pointer text-leaf-dark underline">
-                  Edit details
-                </button>
-                .
+                No photos yet.{" "}
+                {canEdit ? (
+                  <>
+                    Add up to {MAX_GALLERY} with{" "}
+                    <button type="button" onClick={onEdit} className="cursor-pointer text-leaf-dark underline">
+                      Edit details
+                    </button>
+                    .
+                  </>
+                ) : (
+                  <button type="button" onClick={onEdit} className="cursor-pointer text-leaf-dark underline">
+                    Sign up with email to add photos.
+                  </button>
+                )}
               </p>
             )}
           </Section>
@@ -187,7 +199,7 @@ export function PersonDetails({
             onClick={onEdit}
             className="cursor-pointer rounded-full bg-leaf px-5 py-2 text-sm font-semibold text-white hover:bg-leaf-dark"
           >
-            Edit details
+            {canEdit ? "Edit details" : "Sign up to edit"}
           </button>
         </div>
       </div>

@@ -64,7 +64,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
     [family],
   );
   const manager = canManage(role);
-  const canRemoveSelected = !shared || manager || (!!selected && selected.createdBy === userId);
+  // Guests (joined without an email) can look but not change the tree.
+  const canEdit = !shared || !session.isGuest;
+  const canRemoveSelected = canEdit && (!shared || manager || (!!selected && selected.createdBy === userId));
+  const [guestNoteHidden, setGuestNoteHidden] = useState(false);
 
   /** Run a change and show any failure in the banner. */
   const attempt = async (action: () => Promise<void> | void) => {
@@ -79,6 +82,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const closeMenu = () => menuRef.current?.removeAttribute("open");
 
   const openForm = (mode: FormMode) => {
+    if (!canEdit) {
+      setShowKeepAccess(true);
+      return;
+    }
     setFormKey((k) => k + 1);
     setForm(mode);
   };
@@ -158,7 +165,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
     if (
       session.isGuest &&
       !window.confirm(
-        "You joined without an email, so signing out means you’ll need the invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Keep your access: add your email” in the ⋯ menu first. Sign out anyway?",
+        "You joined without an email, so signing out means you’ll need the invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Sign up with email to make updates” in the ⋯ menu first. Sign out anyway?",
       )
     ) {
       return;
@@ -279,7 +286,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     }}
                     className={`${menuItem} font-semibold text-leaf-dark`}
                   >
-                    Keep your access: add your email
+                    Sign up with email to make updates
                   </button>
                 )}
                 <button type="button" onClick={showInvite} className={menuItem}>
@@ -297,9 +304,11 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     >
                       Manage members
                     </button>
-                    <button type="button" onClick={rename} className={menuItem}>
-                      Rename this tree
-                    </button>
+                    {canEdit && (
+                      <button type="button" onClick={rename} className={menuItem}>
+                        Rename this tree
+                      </button>
+                    )}
                   </>
                 )}
                 {session.canCreate && (
@@ -334,6 +343,23 @@ export function FamilyApp({ session }: { session: SessionState }) {
           </div>
         </details>
       </header>
+
+      {shared && !canEdit && !guestNoteHidden && (
+        <div className="z-20 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-leaf-soft px-4 py-2 text-sm text-leaf-dark sm:px-6">
+          <span className="flex-1">You’re viewing as a guest. Sign up with your email to add or edit people.</span>
+          <button type="button" onClick={() => setShowKeepAccess(true)} className="cursor-pointer font-semibold underline">
+            Sign up with email
+          </button>
+          <button
+            type="button"
+            onClick={() => setGuestNoteHidden(true)}
+            aria-label="Hide this message"
+            className="cursor-pointer px-1 text-base leading-none"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {notice && (
         <div role="alert" className="z-20 flex items-start gap-3 bg-clay px-4 py-2 text-sm text-white sm:px-6">
@@ -452,6 +478,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
           relation={relations?.get(selected.id) ?? null}
           showRelation={showRelations}
           canRemove={canRemoveSelected}
+          canEdit={canEdit}
           onClose={() => setDetailsId(null)}
           onSelect={(id) => {
             setDetailsId(id);

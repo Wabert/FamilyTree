@@ -41,7 +41,7 @@ export function FamilyPicker({ session }: { session: SessionState }) {
     if (
       session.isGuest &&
       !window.confirm(
-        "You joined without an email, so signing out means you’ll need an invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Keep your access” first. Sign out anyway?",
+        "You joined without an email, so signing out means you’ll need an invite link to get back in, and you’ll show up as someone new. To avoid that, choose “Sign up with email to make updates” first. Sign out anyway?",
       )
     ) {
       return;
@@ -124,7 +124,7 @@ export function FamilyPicker({ session }: { session: SessionState }) {
             <>
               {" · "}
               <button type="button" onClick={() => setKeepAccess(true)} className="cursor-pointer font-semibold text-leaf-dark underline">
-                Keep your access: add your email
+                Sign up with email to make updates
               </button>
             </>
           )}

@@ -63,12 +63,12 @@ export function KeepAccessDialog({ onClose }: { onClose(): void }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Keep your access"
+        aria-label="Sign up with email"
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[92dvh] w-full max-w-md flex-col rounded-t-3xl bg-card shadow-2xl sm:rounded-3xl"
       >
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-2">
-          <h2 className="font-display text-2xl font-semibold text-ink">{done ? "You’re all set" : "Keep your access"}</h2>
+          <h2 className="font-display text-2xl font-semibold text-ink">{done ? "You’re all set" : "Sign up with email"}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -87,7 +87,7 @@ export function KeepAccessDialog({ onClose }: { onClose(): void }) {
             <>
               <p className="text-sm text-ink">
                 Your email is saved{sentTo ? <> as <strong className="font-semibold">{sentTo}</strong></> : null}. You can
-                now sign in with it on any phone or browser and you’ll be right back in your family tree, as the same
+                now add and edit people in the tree, and sign in with your email on any phone or browser as the same
                 person.
               </p>
               <button type="button" onClick={onClose} className={primaryButton}>
@@ -138,13 +138,12 @@ export function KeepAccessDialog({ onClose }: { onClose(): void }) {
           ) : (
             <>
               <p className="text-sm text-ink">
-                You joined on this device without an email, so your access lives only in this browser. If you switch
-                phones, use a different browser, or clear your browsing data, you’d need a new invite link and would
-                show up as someone new.
+                As a guest you can look around the tree. To make updates (add or edit people, photos and marriages),
+                sign up with your email.
               </p>
               <p className="text-sm text-ink">
-                Add your email and you can sign back in anywhere as the same person. Everything stays as it is: your
-                trees, who you said you are, and what you’ve added.
+                It also means you can sign in on any phone or browser as the same person. Without it, your access lives
+                only in this browser. Everything stays as it is: your trees and who you said you are.
               </p>
               <form onSubmit={send} className="space-y-2">
                 <input
