@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-paper: #f6f1e8;
+  --color-card: #fffdf9;
+  --color-ink: #26221c;
+  --color-muted: #776e61;
+  --color-line: #d8cdbb;
+  --color-leaf: #2f6b4f;
+  --color-leaf-dark: #23513c;
+  --color-leaf-soft: #e3efe7;
+  --color-clay: #a94d31;
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-display: var(--font-fraunces), Georgia, serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+}
+
+/* Faint dot grid so panning the tree feels like moving a sheet of paper. */
+.tree-surface {
+  background-image: radial-gradient(circle, rgb(38 34 28 / 0.09) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Numbered pins on the map view: how many people live in that place. */
+.map-pin {
+  display: flex;
+  height: 36px;
+  width: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--color-leaf);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
+  cursor: pointer;
+}
+.map-pin-active {
+  background: var(--color-ink);
+  transform: scale(1.15);
+}
