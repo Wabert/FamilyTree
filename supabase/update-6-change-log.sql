@@ -27,6 +27,8 @@ create table if not exists audit.changes (
   family_id   uuid,
   user_id     uuid
 );
+-- Second lock: no policies, so app roles see nothing even if granted access.
+alter table audit.changes enable row level security;
 create index if not exists changes_at_idx on audit.changes (at desc);
 create index if not exists changes_family_idx on audit.changes (family_id, at desc);
 revoke all on audit.changes from public, anon, authenticated;
