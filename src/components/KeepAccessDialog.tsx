@@ -47,7 +47,7 @@ export function KeepAccessDialog({ onClose }: { onClose(): void }) {
     e.preventDefault();
     if (!code.trim()) return;
     void run(async () => {
-      await confirmGuestEmail(sentTo, code.trim());
+      await confirmGuestEmail(sentTo, code.replace(/\s+/g, ""));
       setDone(true);
     });
   };

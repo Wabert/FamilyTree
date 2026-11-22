@@ -239,7 +239,7 @@ export async function addEmailToGuest(email: string) {
   throw new Error(authMessage(error));
 }
 
-/** The 6-digit code from the confirmation email, if the email shows one. */
+/** The code from the confirmation email (its length is set in Supabase), if the email shows one. */
 export async function confirmGuestEmail(email: string, code: string) {
   const { error } = await supabase!.auth.verifyOtp({ email, token: code, type: "email_change" });
   if (error) throw new Error(authMessage(error));

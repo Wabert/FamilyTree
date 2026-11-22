@@ -41,7 +41,7 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
   const onCode = (e: FormEvent) => {
     e.preventDefault();
     if (!code.trim()) return;
-    void run(() => verifyEmailCode(sentTo, code.trim()));
+    void run(() => verifyEmailCode(sentTo, code.replace(/\s+/g, "")));
   };
 
   const onInvite = (e: FormEvent) => {
@@ -62,7 +62,7 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
         </p>
         <form onSubmit={onCode} className="mt-6 space-y-3">
           <label className="block">
-            <span className="mb-1 block text-sm font-medium">If the email has a 6-digit code, enter it here</span>
+            <span className="mb-1 block text-sm font-medium">If the email has a code, enter it here</span>
             <input
               className={inputClass}
               inputMode="numeric"
