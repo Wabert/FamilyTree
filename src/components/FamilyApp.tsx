@@ -57,8 +57,9 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const viewMode = useViewMode();
   const treeStyle = useTreeStyle();
   const focusMode = viewMode === "tree" && treeStyle === "focus";
-  // People visited in Focus view, for its Back button.
+  // People visited in Focus view, for its back and forward arrows.
   const [focusHistory, setFocusHistory] = useState<string[]>([]);
+  const [focusForward, setFocusForward] = useState<string[]>([]);
   const treeRef = useRef<TreeViewHandle>(null);
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
@@ -75,14 +76,27 @@ export function FamilyApp({ session }: { session: SessionState }) {
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
   const goToInFocus = (id: string) => {
-    if (focusCenter && id !== focusCenter) setFocusHistory((h) => [...h, focusCenter].slice(-50));
+    if (focusCenter && id !== focusCenter) {
+      setFocusHistory((h) => [...h, focusCenter].slice(-50));
+      setFocusForward([]);
+    }
     setSelectedId(id);
   };
+  // Like a browser: back to who you saw before, forward again after going back.
+  const visible = (ids: string[]) => ids.filter((id) => index.byId.has(id));
   const focusBack = () => {
-    const previous = focusHistory[focusHistory.length - 1];
+    const previous = visible(focusHistory).at(-1);
     if (!previous) return;
-    setFocusHistory((h) => h.slice(0, -1));
+    setFocusHistory((h) => h.slice(0, h.lastIndexOf(previous)));
+    if (focusCenter) setFocusForward((f) => [...f, focusCenter]);
     setSelectedId(previous);
+  };
+  const focusAhead = () => {
+    const next = visible(focusForward).at(-1);
+    if (!next) return;
+    setFocusForward((f) => f.slice(0, f.lastIndexOf(next)));
+    if (focusCenter) setFocusHistory((h) => [...h, focusCenter]);
+    setSelectedId(next);
   };
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
@@ -434,9 +448,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 centerId={focusCenter}
                 meId={me}
                 relations={relations}
-                canGoBack={focusHistory.some((id) => index.byId.has(id))}
                 onCenter={goToInFocus}
-                onBack={focusBack}
                 onDetails={(id) => {
                   setSelectedId(id);
                   setDetailsId(id);
@@ -492,15 +504,16 @@ export function FamilyApp({ session }: { session: SessionState }) {
               </div>
             </div>
             {viewMode === "tree" && (
+              <div className="absolute top-[4.25rem] left-4 z-[5] flex items-center gap-2">
               <div
                 role="group"
                 aria-label="How much of the tree to show"
-                className="absolute top-[4.25rem] left-4 z-[5] flex overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
+                className="flex overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
               >
                 {(
                   [
-                    ["focus", "Focus"],
                     ["whole", "Whole tree"],
+                    ["focus", "Focus"],
                   ] as const
                 ).map(([style, label]) => (
                   <button
@@ -516,6 +529,29 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     {label}
                   </button>
                 ))}
+              </div>
+              {focusMode && (
+                <div className="flex gap-1">
+                  {(
+                    [
+                      ["Back to the previous person", "‹", focusBack, visible(focusHistory).length > 0],
+                      ["Forward again", "›", focusAhead, visible(focusForward).length > 0],
+                    ] as const
+                  ).map(([label, arrow, go, enabled]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={go}
+                      disabled={!enabled}
+                      aria-label={label}
+                      title={label}
+                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-line bg-card text-lg leading-none text-ink shadow-sm hover:border-leaf disabled:cursor-default disabled:opacity-35 disabled:hover:border-line"
+                    >
+                      {arrow}
+                    </button>
+                  ))}
+                </div>
+              )}
               </div>
             )}
             {!me && showRelations && !selected && viewMode !== "map" && !focusMode && (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
@@ -23,24 +23,26 @@ export function FocusView({
   centerId,
   meId,
   relations,
-  canGoBack,
   onCenter,
-  onBack,
   onDetails,
 }: {
   index: FamilyIndex;
   centerId: string;
   meId: string | null;
   relations: Map<string, Relationship> | null;
-  canGoBack: boolean;
   onCenter(id: string): void;
-  onBack(): void;
+  /** Tapping the focused (green) person opens their details. */
   onDetails(id: string): void;
 }) {
   // Moving to someone starts at the top, with their grandparents in view.
   const scroller = useRef<HTMLDivElement>(null);
+  const centerRow = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scroller.current?.scrollTo({ top: 0 });
+    // With many siblings the row scrolls sideways: bring the focused person to its middle.
+    const row = centerRow.current;
+    const card = row?.querySelector<HTMLElement>("[data-focused]");
+    if (row && card) row.scrollLeft = card.offsetLeft - (row.clientWidth - card.offsetWidth) / 2;
   }, [centerId]);
 
   const center = index.byId.get(centerId);
@@ -57,6 +59,13 @@ export function FocusView({
     .filter((group) => group.grandparents.length);
   const spouses = orderSpouses(index, centerId, index.spousesOf(centerId)).reverse();
   const siblings = siblingsOf(index, centerId).sort(age);
+  // Siblings sit on the person's own row, older ones to the left and younger to the right.
+  const born = center.birthYear;
+  const olderSiblings = siblings.filter((id) => {
+    const year = index.byId.get(id)?.birthYear;
+    return born !== undefined && year !== undefined && year < born;
+  });
+  const youngerSiblings = siblings.filter((id) => !olderSiblings.includes(id));
   const isHalf = (id: string) => {
     const mine = index.parentsOf(centerId);
     const theirs = index.parentsOf(id);
@@ -113,44 +122,25 @@ export function FocusView({
           </Section>
         )}
 
-        <Section>
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex w-full items-center justify-between gap-2 px-2">
-              {canGoBack ? (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="cursor-pointer rounded-full border border-line bg-card px-3 py-1 text-sm font-medium text-ink shadow-sm hover:border-leaf"
-                >
-                  ← Back
-                </button>
-              ) : (
-                <span />
-              )}
-              <button
-                type="button"
-                onClick={() => onDetails(centerId)}
-                className="cursor-pointer rounded-full bg-leaf px-4 py-1 text-sm font-semibold text-white hover:bg-leaf-dark"
-              >
-                Details
-              </button>
-            </div>
-            <Row>
-              <CenterCard person={center} relation={relations?.get(centerId)} isMe={centerId === meId} />
-              {spouses.map((id) => {
-                const m = marriageState(index, centerId, id);
-                const note = [cap(spouseTitle(index, centerId, id)), marriageYears(m)].filter(Boolean).join(" · ");
-                return card(id, note);
-              })}
-            </Row>
-          </div>
+        <Section title={siblings.length ? "Siblings" : undefined}>
+          <Row ref={centerRow}>
+            {olderSiblings.map((id) => card(id, isHalf(id) ? "Half-sibling" : undefined))}
+            <PersonCard
+              person={center}
+              relation={relations?.get(centerId)}
+              isMe={centerId === meId}
+              focused
+              onClick={() => onDetails(centerId)}
+            />
+            {spouses.map((id) => {
+              const m = marriageState(index, centerId, id);
+              const note = [cap(spouseTitle(index, centerId, id)), marriageYears(m)].filter(Boolean).join(" · ");
+              return card(id, note);
+            })}
+            {youngerSiblings.map((id) => card(id, isHalf(id) ? "Half-sibling" : undefined))}
+          </Row>
+          <p className="text-[11px] text-muted">Tap {firstName(center)} for details, or anyone else to move to them.</p>
         </Section>
-
-        {siblings.length > 0 && (
-          <Section title={siblings.length === 1 ? "Sibling" : `Siblings (${siblings.length})`}>
-            <Family>{siblings.map((id) => card(id, isHalf(id) ? "Half-sibling" : undefined))}</Family>
-          </Section>
-        )}
 
         {groups.length > 0 && (
           <Section title="Children">
@@ -202,9 +192,9 @@ function Family({ caption, children }: { caption?: string; children: ReactNode }
   );
 }
 
-function Row({ children }: { children: ReactNode }) {
+function Row({ children, ref }: { children: ReactNode; ref?: Ref<HTMLDivElement> }) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div ref={ref} className="w-full overflow-x-auto">
       <div className="mx-auto flex w-max gap-2 px-2 pb-1">{children}</div>
     </div>
   );
@@ -215,12 +205,15 @@ function PersonCard({
   relation,
   note,
   isMe,
+  focused = false,
   onClick,
 }: {
   person: Person;
   relation?: Relationship;
   note?: string;
   isMe: boolean;
+  /** The person the view is centered on: same size, green background. */
+  focused?: boolean;
   onClick(): void;
 }) {
   const years = lifespan(person);
@@ -229,10 +222,12 @@ function PersonCard({
     <button
       type="button"
       onClick={onClick}
+      data-focused={focused || undefined}
+      aria-label={focused ? `${person.name}, shown in the middle. Open details` : undefined}
       className={[
         "flex w-28 shrink-0 cursor-pointer flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-2 text-center transition-shadow hover:shadow-md",
-        dead ? "bg-memorial" : "bg-card shadow-sm",
-        isMe ? "border-leaf ring-2 ring-leaf" : "border-line",
+        focused ? "border-leaf bg-leaf-soft shadow-md" : dead ? "bg-memorial" : "bg-card shadow-sm",
+        isMe ? "border-leaf ring-2 ring-leaf" : focused ? "ring-1 ring-leaf" : "border-line",
       ].join(" ")}
     >
       <span className={dead ? "opacity-75 grayscale-[60%]" : undefined}>
@@ -255,38 +250,5 @@ function PersonCard({
         </span>
       )}
     </button>
-  );
-}
-
-function CenterCard({ person, relation, isMe }: { person: Person; relation?: Relationship; isMe: boolean }) {
-  const years = lifespan(person);
-  const dead = person.deathYear !== undefined;
-  return (
-    <div
-      className={[
-        "flex w-40 shrink-0 flex-col items-center rounded-3xl border-2 px-2 pt-3 pb-2.5 text-center shadow-md",
-        dead ? "bg-memorial" : "bg-card",
-        isMe ? "border-leaf" : "border-ink",
-      ].join(" ")}
-    >
-      <span className={dead ? "opacity-75 grayscale-[60%]" : undefined}>
-        <Avatar person={person} size={72} />
-      </span>
-      <span className={`mt-2 line-clamp-2 text-sm leading-tight font-semibold ${dead ? "text-ink/70" : "text-ink"}`}>
-        {person.name}
-      </span>
-      {(person.nickname || years) && (
-        <span className="mt-0.5 max-w-full truncate text-[11px] text-muted">
-          {person.nickname && <span className="italic">“{person.nickname}”</span>}
-          {person.nickname && years && " · "}
-          {years}
-        </span>
-      )}
-      {relation && (
-        <span className="mt-1.5 rounded-lg bg-leaf-soft px-2 py-0.5 text-[11px] font-medium text-leaf-dark">
-          {relation.label}
-        </span>
-      )}
-    </div>
   );
 }
