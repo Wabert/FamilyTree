@@ -45,9 +45,11 @@ tests), `npm run lint`, `npm run build`.
 
 1. Create a project at https://supabase.com (the free plan is enough).
 2. In the dashboard open **SQL Editor**, paste in all of `supabase/schema.sql`, and run it.
-   Then do the same with `supabase/update-3-moderators.sql` and
-   `supabase/update-4-photo-gallery.sql`, in that order. An existing project only
-   needs the update files it hasn't had yet.
+   Then do the same with `supabase/update-3-moderators.sql`,
+   `supabase/update-4-photo-gallery.sql` and `supabase/update-5-tree-creators.sql`,
+   in that order. An existing project only needs the update files it hasn't had yet.
+   After update 5, only approved accounts can start new trees: sign in once by
+   email, then approve yourself with the query at the bottom of that file.
 3. Under **Authentication → Sign In / Providers**, turn on **anonymous sign-ins**.
    This is what lets relatives join from the invite link without an email.
 4. Copy `.env.example` to `.env.local` and fill in the project URL and publishable
@@ -56,7 +58,7 @@ tests), `npm run lint`, `npm run build`.
 
 How people get in:
 
-- **Organizer:** signs in by email, creates the family tree, then uses **Invite** to
+- **Organizer:** signs in by email (with an approved account), creates the family tree, then uses **Invite** to
   get a link and QR code.
 - **Everyone else:** opens the link and taps **Join the family tree**. No account
   needed; they stay signed in on that device. Anyone with the link can join and edit,

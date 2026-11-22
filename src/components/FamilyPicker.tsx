@@ -51,7 +51,11 @@ export function FamilyPicker({ session }: { session: SessionState }) {
     <Screen>
       <TreeMark />
       <h1 className="mt-4 font-display text-3xl font-semibold">
-        {session.families.length ? "Your family trees" : "Let’s set up your family tree"}
+        {session.families.length
+          ? "Your family trees"
+          : session.canCreate
+            ? "Let’s set up your family tree"
+            : "Join your family tree"}
       </h1>
 
       <div className="mt-4 space-y-6">
@@ -75,22 +79,24 @@ export function FamilyPicker({ session }: { session: SessionState }) {
           </ul>
         )}
 
-        <form onSubmit={onCreate} className="space-y-2">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium">Start a new family tree</span>
-            <input
-              className={inputClass}
-              placeholder="The ______ Family"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={busy || !name.trim()} className={primaryButton}>
-            Create tree
-          </button>
-        </form>
+        {session.canCreate && (
+          <form onSubmit={onCreate} className="space-y-2">
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium">Start a new family tree</span>
+              <input
+                className={inputClass}
+                placeholder="The ______ Family"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <button type="submit" disabled={busy || !name.trim()} className={primaryButton}>
+              Create tree
+            </button>
+          </form>
+        )}
 
-        <form onSubmit={onJoin} className="space-y-2 border-t border-line pt-6">
+        <form onSubmit={onJoin} className={session.canCreate ? "space-y-2 border-t border-line pt-6" : "space-y-2"}>
           <label className="block">
             <span className="mb-1 block text-sm font-medium">Join a tree with an invite code</span>
             <input

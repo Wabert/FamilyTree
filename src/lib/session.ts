@@ -22,6 +22,8 @@ export interface SessionState {
   /** Joined without an email: the account exists on this device only. */
   isGuest: boolean;
   families: FamilySummary[];
+  /** May start new family trees (only approved accounts can). */
+  canCreate: boolean;
   /** An invite the person arrived with and hasn't used yet. */
   inviteCode: string | null;
   error: string;
@@ -30,7 +32,7 @@ export interface SessionState {
 const PENDING_INVITE_KEY = "family-reunion:pending-invite";
 const CURRENT_FAMILY_KEY = "family-reunion:current-family";
 
-const SIGNED_OUT = { userId: null, email: null, isGuest: false, families: [] };
+const SIGNED_OUT = { userId: null, email: null, isGuest: false, families: [], canCreate: false };
 
 /** Demo mode has no accounts: the app goes straight to the tree. */
 const LOCAL_STATE: SessionState = { ...SIGNED_OUT, phase: "open", inviteCode: null, error: "" };
@@ -137,6 +139,12 @@ async function listFamilies(): Promise<FamilySummary[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Whether this account may start trees. If the check itself fails, show the option and let the server decide. */
+async function checkCanCreate(): Promise<boolean> {
+  const { data, error } = await supabase!.rpc("can_create_family");
+  return error ? true : data === true;
+}
+
 async function rpcFamilyId(fn: "join_family" | "create_family", args: Record<string, string>): Promise<string> {
   const { data, error } = await supabase!.rpc(fn, args);
   if (error) {
@@ -163,8 +171,8 @@ async function enter() {
         problem = message(e);
       }
     }
-    const families = await listFamilies();
-    set({ families });
+    const [families, canCreate] = await Promise.all([listFamilies(), checkCanCreate()]);
+    set({ families, canCreate });
     const last = read(CURRENT_FAMILY_KEY);
     const target = families.find((f) => f.id === last) ?? (families.length === 1 ? families[0] : undefined);
     if (target && !problem) await openFamily(target.id);
