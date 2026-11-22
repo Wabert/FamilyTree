@@ -130,12 +130,39 @@ async function onSession(session: Session | null) {
     set({ ...SIGNED_OUT, phase: "signedOut", error: state.phase === "loading" ? signInLinkError : "" });
     return;
   }
+
+  // A session saved in this browser can outlive its account (deleted in the
+  // dashboard, e.g. while testing). Check once, and if it's gone, forget it here
+  // and start again at sign-in rather than failing on every request.
+  if (state.phase === "loading" && (await accountWasDeleted())) {
+    await supabase!.auth.signOut({ scope: "local" });
+    write(CURRENT_FAMILY_KEY, null);
+    set({
+      ...SIGNED_OUT,
+      phase: "signedOut",
+      error: "The account saved in this browser no longer exists. Sign in again, or join with an invite link.",
+    });
+    return;
+  }
+
   set({
     userId,
     email: session.user.email ?? null,
     isGuest: session.user.is_anonymous ?? false,
   });
   await enter();
+}
+
+/** True only when Supabase says the signed-in account no longer exists (not on a network hiccup). */
+async function accountWasDeleted(): Promise<boolean> {
+  const { error } = await supabase!.auth.getUser();
+  if (!error) return false;
+  return (
+    error.code === "user_not_found" ||
+    /does not exist|user not found/i.test(error.message) ||
+    error.status === 403 ||
+    error.status === 404
+  );
 }
 
 async function listFamilies(): Promise<FamilySummary[]> {
