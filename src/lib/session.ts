@@ -276,6 +276,17 @@ export async function signOut() {
 }
 
 /** For someone who has a code rather than a link, before they have signed in. */
+/**
+ * The name of the tree an invite code is for, so the invite screen can say it.
+ * "invalid" when no tree has that code (mistyped, or the link was reset);
+ * null when the name can't be looked up (e.g. the database lacks update 9).
+ */
+export async function inviteTreeName(code: string): Promise<string | "invalid" | null> {
+  const { data, error } = await supabase!.rpc("invite_tree_name", { code });
+  if (error) return null;
+  return typeof data === "string" && data ? data : "invalid";
+}
+
 export function rememberInvite(code: string | null) {
   const cleaned = code?.trim() || null;
   write(PENDING_INVITE_KEY, cleaned);

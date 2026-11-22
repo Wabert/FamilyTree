@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { continueAsGuest, rememberInvite, sendSignInEmail, verifyEmailCode } from "@/lib/session";
+import { continueAsGuest, inviteTreeName, rememberInvite, sendSignInEmail, verifyEmailCode } from "@/lib/session";
 import { ErrorNote, Screen, TreeMark, inputClass, primaryButton, secondaryButton } from "./ui";
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -15,6 +15,20 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
   const [invite, setInvite] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Which tree the invite is for, once looked up.
+  const [tree, setTree] = useState<{ code: string; name: string | "invalid" | null } | null>(null);
+
+  useEffect(() => {
+    if (!inviteCode) return;
+    let live = true;
+    inviteTreeName(inviteCode)
+      .then((name) => live && setTree({ code: inviteCode, name }))
+      .catch(() => live && setTree({ code: inviteCode, name: null }));
+    return () => {
+      live = false;
+    };
+  }, [inviteCode]);
+  const treeName = tree?.code === inviteCode ? tree.name : null;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -97,8 +111,22 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
     <Screen>
       <TreeMark />
       <h1 className="mt-4 font-display text-3xl font-semibold">
-        {inviteCode ? "You’re invited to the family tree" : "Family Reunion"}
+        {inviteCode && treeName && treeName !== "invalid" ? (
+          <>
+            You’re invited to join
+            <span className="mt-1 block text-leaf-dark">{treeName}</span>
+          </>
+        ) : inviteCode ? (
+          "You’re invited to the family tree"
+        ) : (
+          "Family Reunion"
+        )}
       </h1>
+      {inviteCode && treeName === "invalid" && (
+        <p className="mt-3 rounded-xl bg-clay/10 px-3 py-2 text-sm text-clay">
+          This invite link isn’t valid anymore. It may have been reset. Ask whoever sent it for a new one.
+        </p>
+      )}
       <p className="mt-2 text-sm text-muted">
         {inviteCode
           ? "Find yourself in the tree, add your photo, and see how you’re related to everyone."
@@ -107,8 +135,13 @@ export function SignIn({ inviteCode, linkError }: { inviteCode: string | null; l
 
       {inviteCode && (
         <div className="mt-6">
-          <button type="button" disabled={busy} onClick={() => void run(continueAsGuest)} className={`${primaryButton} w-full`}>
-            Join the family tree
+          <button
+            type="button"
+            disabled={busy || treeName === "invalid"}
+            onClick={() => void run(continueAsGuest)}
+            className={`${primaryButton} w-full`}
+          >
+            {treeName && treeName !== "invalid" ? `Join ${treeName}` : "Join the family tree"}
           </button>
           <p className="mt-2 text-xs text-muted">
             No account needed. You’ll stay signed in on this device; to use more than one device, sign in with your
