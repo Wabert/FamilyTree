@@ -48,7 +48,7 @@ export interface LayoutPath {
   /**
    * One of several families hanging from the same row of cards: a child of
    * Benita and her second partner, or of Benita alone, rather than of Benita and
-   * Frank. Drawn in its own color, on a line a little below the main family's.
+   * Frank. Drawn in its own color, on a line a little above the main family's.
    */
   otherFamily: boolean;
 }
@@ -306,7 +306,8 @@ export function computeLayout(family: Family, sizes: CardSizes = REGULAR_CARDS):
 
       const direct = unit.children.includes(childUnit);
       const lane = laneOf.get(unit)?.get(slots.join(",")) ?? 0;
-      const midY = bottom + ROW_GAP / 2 + lane * LANE_STEP;
+      // Other families run a little above the main family's line (never touching the cards).
+      const midY = Math.max(bottom + 6, bottom + ROW_GAP / 2 - lane * LANE_STEP);
       const bendY = (bottom + cy) / 2;
       paths.push({
         key: `${unit.members[slots[0]]}>${person.id}`,

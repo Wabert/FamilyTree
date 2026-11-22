@@ -260,7 +260,7 @@ test("someone with only one parent entered is described through that parent", ()
   assert.equal(relationship(idx, "dan", "eddie").label, "Stepson");
 });
 
-test("a child of only one of a couple gets its own, lower line", () => {
+test("a child of only one of a couple gets its own, higher line", () => {
   const family: Family = {
     name: "One parent line",
     people: [
@@ -281,12 +281,12 @@ test("a child of only one of a couple gets its own, lower line", () => {
   const toEddie = layout.paths.find((p) => p.key.endsWith(">eddie"))!;
   assert.equal(toLemuel.otherFamily, false);
   assert.equal(toEddie.otherFamily, true);
-  // The horizontal run is the "V<y>" before "H": Eddie's sits lower than the shared one.
+  // The horizontal run is the "V<y>" before "H": Eddie's sits just above the shared one.
   const runY = (d: string) => Number(/V([\d.]+) H/.exec(d)![1]);
-  assert.ok(runY(toEddie.d) > runY(toLemuel.d));
+  assert.ok(runY(toEddie.d) < runY(toLemuel.d));
 });
 
-test("a second partner's children get their own, lower line", () => {
+test("a second partner's children get their own, higher line", () => {
   // Frank & Benita have two children; Benita & Tbd have Eddie.
   const family: Family = {
     name: "Two partners",
@@ -317,5 +317,5 @@ test("a second partner's children get their own, lower line", () => {
   assert.equal(path("gloria").otherFamily, false);
   assert.equal(path("eddie").otherFamily, true);
   const runY = (d: string) => Number(/V([\d.]+) H/.exec(d)![1]);
-  assert.ok(runY(path("eddie").d) > runY(path("lemuel").d));
+  assert.ok(runY(path("eddie").d) < runY(path("lemuel").d));
 });
