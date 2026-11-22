@@ -449,6 +449,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 meId={me}
                 relations={relations}
                 onCenter={goToInFocus}
+                onSwipe={(id) => setSelectedId(id)}
                 onDetails={(id) => {
                   setSelectedId(id);
                   setDetailsId(id);

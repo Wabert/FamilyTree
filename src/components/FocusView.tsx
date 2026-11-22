@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { ReactNode, Ref } from "react";
 import { siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
@@ -24,6 +24,7 @@ export function FocusView({
   meId,
   relations,
   onCenter,
+  onSwipe,
   onDetails,
 }: {
   index: FamilyIndex;
@@ -31,18 +32,18 @@ export function FocusView({
   meId: string | null;
   relations: Map<string, Relationship> | null;
   onCenter(id: string): void;
+  /** Swiping the siblings row to someone: moves the focus without a history step. */
+  onSwipe(id: string): void;
   /** Tapping the focused (green) person opens their details. */
   onDetails(id: string): void;
 }) {
-  // Moving to someone starts at the top, with their grandparents in view.
+  // Moving to someone by tapping starts at the top, with their grandparents in
+  // view; swiping along the siblings keeps the page where it is.
   const scroller = useRef<HTMLDivElement>(null);
-  const centerRow = useRef<HTMLDivElement>(null);
+  const swipedTo = useRef<string | null>(null);
   useEffect(() => {
-    scroller.current?.scrollTo({ top: 0 });
-    // With many siblings the row scrolls sideways: bring the focused person to its middle.
-    const row = centerRow.current;
-    const card = row?.querySelector<HTMLElement>("[data-focused]");
-    if (row && card) row.scrollLeft = card.offsetLeft - (row.clientWidth - card.offsetWidth) / 2;
+    if (swipedTo.current !== centerId) scroller.current?.scrollTo({ top: 0 });
+    swipedTo.current = null;
   }, [centerId]);
 
   const center = index.byId.get(centerId);
@@ -59,13 +60,8 @@ export function FocusView({
     .filter((group) => group.grandparents.length);
   const spouses = orderSpouses(index, centerId, index.spousesOf(centerId)).reverse();
   const siblings = siblingsOf(index, centerId).sort(age);
-  // Siblings sit on the person's own row, older ones to the left and younger to the right.
-  const born = center.birthYear;
-  const olderSiblings = siblings.filter((id) => {
-    const year = index.byId.get(id)?.birthYear;
-    return born !== undefined && year !== undefined && year < born;
-  });
-  const youngerSiblings = siblings.filter((id) => !olderSiblings.includes(id));
+  // The person and their siblings, oldest to youngest: the row that swipes.
+  const brood = [...siblings, centerId].sort(age);
   const isHalf = (id: string) => {
     const mine = index.parentsOf(centerId);
     const theirs = index.parentsOf(id);
@@ -122,25 +118,39 @@ export function FocusView({
           </Section>
         )}
 
-        <Section title={siblings.length ? "Siblings" : undefined}>
-          <Row ref={centerRow}>
-            {olderSiblings.map((id) => card(id, isHalf(id) ? "Half-sibling" : undefined))}
-            <PersonCard
-              person={center}
-              relation={relations?.get(centerId)}
-              isMe={centerId === meId}
-              focused
-              onClick={() => onDetails(centerId)}
-            />
-            {spouses.map((id) => {
-              const m = marriageState(index, centerId, id);
-              const note = [cap(spouseTitle(index, centerId, id)), marriageYears(m)].filter(Boolean).join(" · ");
-              return card(id, note);
-            })}
-            {youngerSiblings.map((id) => card(id, isHalf(id) ? "Half-sibling" : undefined))}
-          </Row>
-          <p className="text-[11px] text-muted">Tap {firstName(center)} for details, or anyone else to move to them.</p>
+        <Section title={siblings.length ? "Siblings · swipe" : undefined}>
+          <SiblingCarousel
+            ids={brood}
+            centerId={centerId}
+            renderCard={(id, focused) => (
+              <PersonCard
+                person={index.byId.get(id)!}
+                relation={relations?.get(id)}
+                note={!focused && isHalf(id) ? "Half-sibling" : undefined}
+                isMe={id === meId}
+                focused={focused}
+                onClick={() => (focused ? onDetails(id) : undefined)}
+              />
+            )}
+            onSettle={(id) => {
+              swipedTo.current = id;
+              onSwipe(id);
+            }}
+          />
+          <p className="text-[11px] text-muted">Tap {firstName(center)} for details. Tap anyone else to move to them.</p>
         </Section>
+
+        {spouses.length > 0 && (
+          <Section title={spouses.length > 1 ? "Spouses" : "Spouse"}>
+            <Family>
+              {spouses.map((id) => {
+                const m = marriageState(index, centerId, id);
+                const note = [cap(spouseTitle(index, centerId, id)), marriageYears(m)].filter(Boolean).join(" · ");
+                return card(id, note);
+              })}
+            </Family>
+          </Section>
+        )}
 
         {groups.length > 0 && (
           <Section title="Children">
@@ -167,6 +177,87 @@ export function FocusView({
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The focused person among their siblings, oldest to youngest. Swipe and it
+ * snaps a card into the middle, and that person becomes the focus; tapping a
+ * sibling glides them into the middle the same way.
+ */
+function SiblingCarousel({
+  ids,
+  centerId,
+  renderCard,
+  onSettle,
+}: {
+  ids: string[];
+  centerId: string;
+  renderCard(id: string, focused: boolean): ReactNode;
+  onSettle(id: string): void;
+}) {
+  const row = useRef<HTMLDivElement>(null);
+  const settle = useRef<number | undefined>(undefined);
+
+  const offsetFor = (el: HTMLElement, container: HTMLElement) =>
+    el.offsetLeft - (container.clientWidth - el.offsetWidth) / 2;
+
+  // Whenever the focus changes (or the row's people change, e.g. after moving to a
+  // half-sibling), put the focused person exactly in the middle.
+  useLayoutEffect(() => {
+    const container = row.current;
+    const el = container?.querySelector<HTMLElement>(`[data-slot="${centerId}"]`);
+    if (container && el) container.scrollTo({ left: offsetFor(el, container), behavior: "instant" });
+  }, [centerId, ids]);
+
+  useEffect(() => () => window.clearTimeout(settle.current), []);
+
+  const onScroll = () => {
+    window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => {
+      const container = row.current;
+      if (!container) return;
+      const middle = container.scrollLeft + container.clientWidth / 2;
+      let best: { id: string; distance: number } | null = null;
+      for (const el of container.querySelectorAll<HTMLElement>("[data-slot]")) {
+        const distance = Math.abs(el.offsetLeft + el.offsetWidth / 2 - middle);
+        if (!best || distance < best.distance) best = { id: el.dataset.slot!, distance };
+      }
+      if (best && best.id !== centerId) onSettle(best.id);
+    }, 120);
+  };
+
+  const glideTo = (id: string) => {
+    const container = row.current;
+    const el = container?.querySelector<HTMLElement>(`[data-slot="${id}"]`);
+    if (container && el) container.scrollTo({ left: offsetFor(el, container), behavior: "smooth" });
+  };
+
+  // Room at both ends so the oldest and youngest can sit in the middle too.
+  const spacer = <span aria-hidden className="shrink-0" style={{ width: "calc(50% - 4rem)" }} />;
+  return (
+    <div
+      ref={row}
+      onScroll={onScroll}
+      className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none]"
+    >
+      {spacer}
+      {ids.map((id) => (
+        <div
+          key={id}
+          data-slot={id}
+          className="shrink-0 snap-center"
+          onClickCapture={(e) => {
+            if (id === centerId) return;
+            e.stopPropagation();
+            glideTo(id);
+          }}
+        >
+          {renderCard(id, id === centerId)}
+        </div>
+      ))}
+      {spacer}
     </div>
   );
 }
