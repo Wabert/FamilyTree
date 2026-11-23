@@ -1,7 +1,6 @@
 "use client";
 
-import { oldestFirst, type FamilyIndex } from "@/lib/graph";
-import { orderSpouses } from "@/lib/marriage";
+import type { FamilyIndex } from "@/lib/graph";
 import type { Relationship } from "@/lib/relationship";
 import type { Person } from "@/lib/types";
 import { Avatar, lifespan } from "./Avatar";
@@ -9,8 +8,8 @@ import { firstName } from "./FocusView";
 import { RelationNote } from "./RelationNote";
 
 /**
- * The quick card shown when someone is tapped: who they are at a glance, their
- * closest family to hop to, and ways into their full details and Focus view.
+ * The quick card shown when someone is tapped: who they are at a glance, and
+ * ways into their full details and Focus view.
  */
 export function PersonPanel({
   person,
@@ -20,7 +19,6 @@ export function PersonPanel({
   showRelation,
   onClose,
   onDetails,
-  onGo,
   onFocus,
 }: {
   person: Person;
@@ -31,25 +29,11 @@ export function PersonPanel({
   showRelation: boolean;
   onClose(): void;
   onDetails(): void;
-  /** Tapping a relative's name: move to them. */
-  onGo(id: string): void;
   /** Switch to Focus view, on this person. */
   onFocus(): void;
 }) {
   const years = lifespan(person);
   const photoCount = person.gallery?.length ?? 0;
-
-  // Current spouse first; children oldest first, like everywhere else.
-  const parents = index.parentsOf(person.id);
-  const spouses = orderSpouses(index, person.id, index.spousesOf(person.id)).reverse();
-  const children = [...index.childrenOf(person.id)].sort(oldestFirst(index));
-  const relatives = (
-    [
-      [parents.length > 1 ? "Parents" : "Parent", parents],
-      [spouses.length > 1 ? "Spouses" : "Spouse", spouses],
-      [children.length > 1 ? "Children" : "Child", children],
-    ] as const
-  ).filter(([, ids]) => ids.length > 0);
 
   return (
     <aside
@@ -87,38 +71,6 @@ export function PersonPanel({
         )}
 
         {showRelation && <RelationNote person={person} index={index} meId={meId} relation={relation} />}
-
-        {relatives.length > 0 && (
-          <dl className="space-y-1.5">
-            {relatives.map(([label, ids]) => (
-              <div key={label} className="flex items-start gap-2">
-                <dt className="w-[4.25rem] shrink-0 pt-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
-                  {label}
-                </dt>
-                <dd className="flex min-w-0 flex-wrap gap-1.5">
-                  {ids.map((id) => {
-                    const relative = index.byId.get(id);
-                    if (!relative) return null;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => onGo(id)}
-                        aria-label={`Go to ${relative.name}`}
-                        title={relative.name}
-                        className="flex max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-line bg-white py-1 pr-3 pl-1 text-sm font-medium text-ink hover:border-leaf active:bg-leaf-soft"
-                      >
-                        <Avatar person={relative} size={24} />
-                        {/* First names keep the card short on a phone; the group says which John. */}
-                        <span className="truncate">{firstName(relative)}</span>
-                      </button>
-                    );
-                  })}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
 
         <div className="flex gap-2">
           <button
