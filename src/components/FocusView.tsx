@@ -6,7 +6,7 @@ import { oldestFirst, siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
 import type { Person } from "@/lib/types";
-import { Avatar, lifespan } from "./Avatar";
+import { Avatar } from "./Avatar";
 
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** What the family calls them: their nickname, or else their first name. */
@@ -288,12 +288,15 @@ function SiblingCarousel({
 
   // Room at both ends so the oldest and youngest can sit in the middle too.
   const spacer = <span aria-hidden className="shrink-0" style={{ width: "calc(50% - 4rem)" }} />;
+  // Room below for the spouse circles that hang off the focused card's bottom
+  // edge (a scrolling row clips anything outside it), then pulled back up so
+  // the line down to the children still starts at the card.
   return (
     <div
       ref={row}
       data-carousel
       onScroll={onScroll}
-      className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none]"
+      className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain -mb-3 pb-4 [scrollbar-width:none]"
     >
       {spacer}
       {ids.map((id) => (
@@ -369,16 +372,17 @@ function PersonCard({
   isMe: boolean;
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
-  /** Shown inside the focused card, e.g. "Wife · m. 2004: Linda Hartley". */
+  /** Circles on the focused card's bottom edge, e.g. Linda Hartley, "Wife · m. 2004". */
   spouses?: { id: string; name: string; title: string }[];
   onSpouse?(id: string, el: HTMLElement): void;
   /** Given the card's element, so the view can slide from where it was. */
   onClick(el: HTMLElement): void;
 }) {
-  const years = lifespan(person);
   const dead = person.deathYear !== undefined;
   const look = [
-    "flex w-28 shrink-0 flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-2 text-center",
+    // Every card has room at the bottom for the spouse circles, so a card is the
+    // same size with or without them.
+    "relative flex w-28 shrink-0 flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-4 text-center",
     focused ? "border-leaf bg-leaf-soft shadow-md" : dead ? "bg-memorial" : "bg-card shadow-sm",
     isMe ? "border-leaf ring-2 ring-leaf" : focused ? "ring-1 ring-leaf" : "border-line",
   ].join(" ");
@@ -390,12 +394,8 @@ function PersonCard({
       <span className={`mt-1.5 line-clamp-2 text-[12px] leading-tight font-semibold ${dead ? "text-ink/70" : "text-ink"}`}>
         {person.name}
       </span>
-      {(person.nickname || years) && (
-        <span className="mt-0.5 max-w-full truncate text-[10px] text-muted">
-          {person.nickname && <span className="italic">“{person.nickname}”</span>}
-          {person.nickname && years && " · "}
-          {years}
-        </span>
+      {person.nickname && (
+        <span className="mt-0.5 max-w-full truncate text-[10px] text-muted italic">“{person.nickname}”</span>
       )}
       {note && <span className="mt-0.5 line-clamp-2 text-[10px] leading-tight text-muted">{note}</span>}
       {relation && relation.kind !== "none" && (
@@ -418,7 +418,7 @@ function PersonCard({
       </button>
     );
   }
-  // The focused card: tap the person for details, or a spouse's name to move to them.
+  // The focused card: tap the person for details, or a spouse's circle to move to them.
   return (
     <div data-focused className={look}>
       <button
@@ -430,24 +430,20 @@ function PersonCard({
         {body}
       </button>
       {spouses && spouses.length > 0 && (
-        <div className="mt-1.5 w-full space-y-1 border-t border-leaf/30 pt-1.5">
+        // Sitting on the bottom edge, where the line down to the children starts.
+        <div className="absolute inset-x-0 -bottom-3.5 flex justify-center gap-1">
           {spouses.map((spouse) => (
-            <div key={spouse.id} className="flex flex-col items-center leading-tight">
-              {/* A small pill with an arrow, so it reads as something to tap. */}
-              <button
-                type="button"
-                data-person-id={spouse.id}
-                onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
-                aria-label={`Go to ${spouse.name}`}
-                className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
-              >
-                <span className="truncate">{spouse.name}</span>
-                <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
-                  ›
-                </span>
-              </button>
-              <span className="mt-0.5 block max-w-full truncate text-[9px] text-muted">{spouse.title}</span>
-            </div>
+            <button
+              key={spouse.id}
+              type="button"
+              data-person-id={spouse.id}
+              onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
+              aria-label={`Go to ${spouse.name}${spouse.title ? ` (${spouse.title})` : ""}`}
+              title={[spouse.name, spouse.title].filter(Boolean).join(" · ")}
+              className="cursor-pointer rounded-full shadow-sm ring-2 ring-card outline-offset-2 hover:ring-leaf active:scale-95"
+            >
+              <Avatar person={spouse} size={28} />
+            </button>
           ))}
         </div>
       )}
