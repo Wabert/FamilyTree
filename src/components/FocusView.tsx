@@ -61,14 +61,18 @@ export function FocusView({
     if (swiped) return;
     scroller.current?.scrollTo({ top: 0 });
 
+    // Plays even with the phone's Reduce Motion setting on, like the sibling row's
+    // own smooth scroll: it's the same kind of move, and the way you keep your place.
     const box = content.current;
     slide.current?.cancel();
-    if (!box || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!box) return;
     const card = box.querySelector<HTMLElement>("[data-focused]")?.getBoundingClientRect();
-    if (from && card) {
+    const row = box.querySelector<HTMLElement>("[data-carousel]")?.getBoundingClientRect();
+    if (from && card && row) {
       // Everything moves together: the tapped card starts where your finger was
-      // and lands in the middle, with its family coming along around it.
-      const dx = from.left - (card.left + card.width / 2);
+      // and lands in the middle of its row (where the row snaps it, even if the
+      // row hasn't finished settling yet), with its family coming along around it.
+      const dx = from.left - (row.left + row.width / 2);
       const dy = from.top - card.top;
       slide.current = box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
         duration: SLIDE_MS,
@@ -204,8 +208,13 @@ function SiblingCarousel({
   const row = useRef<HTMLDivElement>(null);
   const settle = useRef<number | undefined>(undefined);
 
-  const offsetFor = (el: HTMLElement, container: HTMLElement) =>
-    el.offsetLeft - (container.clientWidth - el.offsetWidth) / 2;
+  // The scroll position that puts this card exactly in the middle. (Measured on
+  // screen: offsetLeft counts from the wrong parent and was off by the padding.)
+  const offsetFor = (el: HTMLElement, container: HTMLElement) => {
+    const card = el.getBoundingClientRect();
+    const box = container.getBoundingClientRect();
+    return container.scrollLeft + card.left - box.left - (box.width - card.width) / 2;
+  };
 
   // Whenever the focus changes (or the row's people change, e.g. after moving to a
   // half-sibling), put the focused person exactly in the middle.
@@ -247,6 +256,7 @@ function SiblingCarousel({
   return (
     <div
       ref={row}
+      data-carousel
       onScroll={onScroll}
       className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none]"
     >
