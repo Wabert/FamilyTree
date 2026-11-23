@@ -196,6 +196,15 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const returnToWholeTree = () => {
     if (selected) focusPerson(selected.id);
   };
+  // From Focus to the whole tree: centre on whoever was in the middle, but don't
+  // open their card; tapping someone in the tree does that. Back still knows
+  // where you were.
+  const leaveFocusForWholeTree = () => {
+    const id = focusCenter;
+    lastPicked.current = id;
+    setSelectedId(null);
+    if (id) window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays), 60);
+  };
 
   // Tapping a card on a phone would otherwise hide it behind the bottom sheet.
   const selectFromTree = (id: string) => {
@@ -576,7 +585,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     aria-pressed={treeStyle === style}
                     onClick={() => {
                       setTreeStyle(style);
-                      if (style === "whole" && treeStyle !== "whole") returnToWholeTree();
+                      if (style === "whole" && treeStyle !== "whole") leaveFocusForWholeTree();
                     }}
                     className={[
                       "cursor-pointer px-3 py-1 font-medium",
