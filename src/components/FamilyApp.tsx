@@ -15,7 +15,7 @@ import {
 } from "@/lib/store";
 import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode, setTreeStyle, useTreeStyle } from "@/lib/prefs";
 import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
-import { FocusTrail, FocusView } from "./FocusView";
+import { FocusView } from "./FocusView";
 import { InviteDialog } from "./InviteDialog";
 import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ListView } from "./ListView";
@@ -62,8 +62,6 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const viewMode = useViewMode();
   const treeStyle = useTreeStyle();
   const focusMode = viewMode === "tree" && treeStyle === "focus";
-  // The people you came through in Focus view, oldest first: the trail shown above it.
-  const [focusHistory, setFocusHistory] = useState<string[]>([]);
   const treeRef = useRef<TreeViewHandle>(null);
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
@@ -79,28 +77,9 @@ export function FamilyApp({ session }: { session: SessionState }) {
     )[0];
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
-  // Move Focus view to someone. The person you were on joins the trail; going to
-  // someone already on the trail steps back to them instead, so it stays a path
-  // and not a log. Done as a transition, which is what lets the cards glide to
-  // their new places.
-  const goToInFocus = (id: string) => {
-    const from = focusCenter;
-    startTransition(() => {
-      if (from && id !== from) {
-        setFocusHistory((trail) => {
-          const back = trail.indexOf(id);
-          if (back >= 0) return trail.slice(0, back);
-          const seen = trail.indexOf(from);
-          return [...(seen >= 0 ? trail.slice(0, seen) : trail), from].slice(-50);
-        });
-      }
-      setSelectedId(id);
-    });
-  };
-  // The trail as shown: people still in the tree, up to (not including) whoever is in the middle now.
-  const cameThrough = focusHistory.flatMap((id) => index.byId.get(id) ?? []);
-  const here = cameThrough.findIndex((p) => p.id === focusCenter);
-  const focusTrail = here >= 0 ? cameThrough.slice(0, here) : cameThrough;
+  // Move Focus view to someone. Done as a transition, which is what lets the
+  // cards glide to their new places.
+  const goToInFocus = (id: string) => startTransition(() => setSelectedId(id));
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],
@@ -156,8 +135,8 @@ export function FamilyApp({ session }: { session: SessionState }) {
     window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays), 60);
   };
 
-  // Jumping to someone by name (search, or a relative in the quick card): also
-  // scrolls the list to them, when that is the view showing.
+  // Jumping to someone by name (search, or the quiz): also scrolls the list to
+  // them, when that is the view showing.
   const jumpTo = (id: string) => {
     setFocusTick((n) => n + 1);
     focusPerson(id);
@@ -528,12 +507,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
               </div>
             </div>
             {viewMode === "tree" && (
-              // Phones: the trail on its own line under the buttons. Wider screens: beside them.
-              <div className="pointer-events-none absolute inset-x-4 top-[4.25rem] z-[5] flex flex-wrap items-center gap-x-2 gap-y-1.5">
               <div
                 role="group"
                 aria-label="How much of the tree to show"
-                className="pointer-events-auto flex shrink-0 overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
+                className="absolute top-[4.25rem] left-4 z-[5] flex overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
               >
                 {(
                   [
@@ -558,17 +535,6 @@ export function FamilyApp({ session }: { session: SessionState }) {
                   </button>
                 ))}
               </div>
-              {focusMode && focusCenter && (
-                <div className="pointer-events-auto w-full min-w-0 sm:w-auto sm:flex-1">
-                  <FocusTrail
-                    trail={focusTrail}
-                    current={index.byId.get(focusCenter)!}
-                    me={me ? index.byId.get(me) : undefined}
-                    onGo={goToInFocus}
-                  />
-                </div>
-              )}
-              </div>
             )}
             {!me && showRelations && !selected && viewMode !== "map" && !focusMode && (
               <p className="pointer-events-none absolute bottom-4 left-1/2 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-full border border-line bg-card px-4 py-2 text-center text-sm text-ink shadow-sm">
@@ -588,7 +554,6 @@ export function FamilyApp({ session }: { session: SessionState }) {
             showRelation={showRelations}
             onClose={() => setSelectedId(null)}
             onDetails={() => setDetailsId(selected.id)}
-            onGo={jumpTo}
             onFocus={() => {
               setViewMode("tree");
               setTreeStyle("focus");

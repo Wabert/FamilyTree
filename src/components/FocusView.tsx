@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useLayoutEffect, useRef, ViewTransition } from "react";
+import { useEffect, useLayoutEffect, useRef, ViewTransition } from "react";
 import type { ReactNode } from "react";
 import { oldestFirst, siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
@@ -36,7 +36,7 @@ export function FocusView({
   meId: string | null;
   relations: Map<string, Relationship> | null;
   onCenter(id: string): void;
-  /** Swiping the siblings row to someone: moves the focus without a history step. */
+  /** Swiping the siblings row to someone: the card is already in place, so nothing glides. */
   onSwipe(id: string): void;
   /** Tapping the focused (green) person opens their details. */
   onDetails(id: string): void;
@@ -96,7 +96,7 @@ export function FocusView({
   const hasCard = new Set([...parents, ...brood, ...children]);
 
   return (
-    <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-36 pb-10 sm:pt-32">
+    <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-32 pb-10">
       <div className="mx-auto flex max-w-3xl flex-col items-center px-2">
         {parents.length > 0 && (
           <>
@@ -153,69 +153,6 @@ export function FocusView({
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * Above Focus view: the people you came through to get here, each one a tap to
- * step back to them, and a way home to yourself.
- */
-export function FocusTrail({
-  trail,
-  current,
-  me,
-  onGo,
-}: {
-  /** Who you came through, oldest first. Empty until you have moved. */
-  trail: Person[];
-  current: Person;
-  me: Person | undefined;
-  onGo(id: string): void;
-}) {
-  // Keep the newest end of a long trail in view.
-  const row = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    row.current?.scrollTo({ left: row.current.scrollWidth });
-  }, [trail.length, current.id]);
-
-  const chip =
-    "shrink-0 cursor-pointer rounded-full border bg-card px-2.5 py-1 font-medium shadow-sm hover:border-leaf active:bg-leaf-soft";
-  return (
-    <nav aria-label="How you got here" className="flex min-w-0 items-center gap-2 text-xs">
-      {me && me.id !== current.id && (
-        <button
-          type="button"
-          onClick={() => onGo(me.id)}
-          aria-label={`Back to me (${me.name})`}
-          className={`${chip} border-leaf text-leaf-dark`}
-        >
-          Me
-        </button>
-      )}
-      {trail.length > 0 && (
-        <div ref={row} className="flex min-w-0 items-center gap-1 overflow-x-auto py-0.5 [scrollbar-width:none]">
-          {trail.map((person) => (
-            <Fragment key={person.id}>
-              <button
-                type="button"
-                onClick={() => onGo(person.id)}
-                aria-label={`Back to ${person.name}`}
-                title={person.name}
-                className={`${chip} border-line text-ink`}
-              >
-                {firstName(person)}
-              </button>
-              <span aria-hidden className="shrink-0 text-muted">
-                ›
-              </span>
-            </Fragment>
-          ))}
-          <span aria-current="true" title={current.name} className="shrink-0 px-1 font-semibold text-ink">
-            {firstName(current)}
-          </span>
-        </div>
-      )}
-    </nav>
   );
 }
 
