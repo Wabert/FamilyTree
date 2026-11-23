@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode } from "react";
 import { siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
@@ -56,10 +56,6 @@ export function FocusView({
   const age = byAge(index);
 
   const parents = [...index.parentsOf(centerId)].sort(age);
-  // A parent's other partner (a step-parent) explains half-siblings, so show them too.
-  const stepParents = parents
-    .flatMap((p) => index.spousesOf(p))
-    .filter((s, i, all) => !parents.includes(s) && all.indexOf(s) === i);
   const spouses = orderSpouses(index, centerId, index.spousesOf(centerId)).reverse();
   const siblings = siblingsOf(index, centerId).sort(age);
   // The person and their siblings, oldest to youngest: the row that swipes.
@@ -76,11 +72,13 @@ export function FocusView({
     const other = index.parentsOf(child).find((p) => p !== centerId) ?? "";
     childGroups.set(other, [...(childGroups.get(other) ?? []), child]);
   }
-  const groups = [...childGroups].sort(([a], [b]) => {
-    // Current spouse's children first, then other partners, then "other parent not in the tree".
-    const rank = (id: string) => (id === "" ? 3 : spouses[0] === id ? 0 : spouses.includes(id) ? 1 : 2);
-    return rank(a) - rank(b);
-  });
+  const children = [...childGroups]
+    .sort(([a], [b]) => {
+      // Current spouse's children first, then other partners, then "other parent not in the tree".
+      const rank = (id: string) => (id === "" ? 3 : spouses[0] === id ? 0 : spouses.includes(id) ? 1 : 2);
+      return rank(a) - rank(b);
+    })
+    .flatMap(([, kids]) => kids);
 
   const card = (id: string, note?: string) => (
     <PersonCard
@@ -95,75 +93,53 @@ export function FocusView({
 
   return (
     <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-32 pb-10">
-      <div className="mx-auto flex max-w-3xl flex-col items-stretch gap-1 px-2">
+      <div className="mx-auto flex max-w-3xl flex-col items-center px-2">
         {parents.length > 0 && (
-          <Section title="Parents">
-            <Family>{parents.map((id) => card(id))}</Family>
-            {stepParents.length > 0 && (
-              <Family caption="Step-parent">
-                {stepParents.map((id) => {
-                  const partner = parents.find((p) => index.spousesOf(p).includes(id));
-                  return card(id, partner ? cap(spouseTitle(index, partner, id)) + ` of ${firstName(index.byId.get(partner))}` : undefined);
-                })}
-              </Family>
-            )}
-          </Section>
+          <>
+            <Parents>{parents.map((id) => card(id))}</Parents>
+            <Line />
+          </>
         )}
 
-        <Section title={siblings.length ? "Siblings · swipe" : undefined}>
-          <SiblingCarousel
-            ids={brood}
-            centerId={centerId}
-            renderCard={(id, focused) => (
-              <PersonCard
-                person={index.byId.get(id)!}
-                relation={relations?.get(id)}
-                note={!focused && isHalf(id) ? "Half-sibling" : undefined}
-                isMe={id === meId}
-                focused={focused}
-                spouses={
-                  focused
-                    ? spouses.map((s) => ({
-                        id: s,
-                        name: index.byId.get(s)?.name ?? "",
-                        title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
-                          .filter(Boolean)
-                          .join(" · "),
-                      }))
-                    : undefined
-                }
-                onSpouse={onCenter}
-                onClick={() => (focused ? onDetails(id) : undefined)}
-              />
-            )}
-            onSettle={(id) => {
-              swipedTo.current = id;
-              onSwipe(id);
-            }}
-          />
-          <p className="text-[11px] text-muted">Tap {firstName(center)} for details. Tap anyone else to move to them.</p>
-        </Section>
+        <SiblingCarousel
+          ids={brood}
+          centerId={centerId}
+          renderCard={(id, focused) => (
+            <PersonCard
+              person={index.byId.get(id)!}
+              relation={relations?.get(id)}
+              note={!focused && isHalf(id) ? "Half-sibling" : undefined}
+              isMe={id === meId}
+              focused={focused}
+              spouses={
+                focused
+                  ? spouses.map((s) => ({
+                      id: s,
+                      name: index.byId.get(s)?.name ?? "",
+                      title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
+                        .filter(Boolean)
+                        .join(" · "),
+                    }))
+                  : undefined
+              }
+              onSpouse={onCenter}
+              onClick={() => (focused ? onDetails(id) : undefined)}
+            />
+          )}
+          onSettle={(id) => {
+            swipedTo.current = id;
+            onSwipe(id);
+          }}
+        />
 
-        {groups.length > 0 && (
-          <Section title="Children">
-            {groups.map(([other, kids]) => (
-              <Family
-                key={other || "none"}
-                caption={
-                  groups.length === 1
-                    ? undefined
-                    : other
-                      ? `With ${index.byId.get(other)?.name ?? "partner"}`
-                      : "Other parent not in the tree"
-                }
-              >
-                {kids.map((id) => card(id))}
-              </Family>
-            ))}
-          </Section>
+        {children.length > 0 && (
+          <>
+            <Line />
+            <Children>{children.map((id) => card(id))}</Children>
+          </>
         )}
 
-        {!parents.length && !spouses.length && !siblings.length && !groups.length && (
+        {!parents.length && !spouses.length && !siblings.length && !children.length && (
           <p className="px-4 py-6 text-center text-sm text-muted">
             No one is linked to {firstName(center)} yet. Use Details → Edit details to add their parents or spouse.
           </p>
@@ -258,31 +234,40 @@ function SiblingCarousel({
   );
 }
 
-function Section({ title, children }: { title?: string; children: ReactNode }) {
-  return (
-    <section className="relative flex flex-col items-center gap-1.5 py-2">
-      {/* A short line down the middle ties the generations together. */}
-      <span aria-hidden className="absolute -top-1 left-1/2 h-3 w-px bg-line" />
-      {title && <h3 className="text-[11px] font-semibold tracking-wide text-muted uppercase">{title}</h3>}
-      <div className="flex w-full flex-col items-center gap-2">{children}</div>
-    </section>
-  );
+/** A short line down the middle, joining one generation to the next. */
+function Line() {
+  return <span aria-hidden className="block h-5 w-px shrink-0 bg-line" />;
 }
 
-/** One family's people in a row: centered when they fit, scrolling sideways when they don't. */
-function Family({ caption, children }: { caption?: string; children: ReactNode }) {
+/** The parents side by side, joined by a short line, like a couple in the whole tree. */
+function Parents({ children }: { children: ReactNode }) {
   return (
-    <div className="flex w-full flex-col items-center gap-1">
-      {caption && <p className="text-[11px] text-muted">{caption}</p>}
-      <Row>{children}</Row>
+    <div className="w-full overflow-x-auto">
+      <div className="relative mx-auto flex w-max gap-4 px-2">
+        {/* Between the two cards, at the middle of their height. */}
+        <span aria-hidden className="absolute top-1/2 left-1/2 h-px w-4 -translate-x-1/2 bg-line" />
+        {children}
+      </div>
     </div>
   );
 }
 
-function Row({ children, ref }: { children: ReactNode; ref?: Ref<HTMLDivElement> }) {
+/** The children in a row, each hanging from one line across, like the whole tree. */
+function Children({ children }: { children: ReactNode[] }) {
   return (
-    <div ref={ref} className="w-full overflow-x-auto">
-      <div className="mx-auto flex w-max gap-2 px-2 pb-1">{children}</div>
+    <div className="w-full overflow-x-auto">
+      <div className="mx-auto flex w-max px-2 pb-1">
+        {children.map((child, i) => (
+          <div key={i} className="relative flex flex-col items-center px-1 pt-4">
+            {/* The line across: from this card's middle to its neighbours'. */}
+            {i > 0 && <span aria-hidden className="absolute top-0 left-0 h-px w-1/2 bg-line" />}
+            {i < children.length - 1 && <span aria-hidden className="absolute top-0 right-0 h-px w-1/2 bg-line" />}
+            {/* And down to the card. */}
+            <span aria-hidden className="absolute top-0 left-1/2 h-4 w-px bg-line" />
+            {child}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
