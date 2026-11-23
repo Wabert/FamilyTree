@@ -18,6 +18,32 @@ export const firstName = (person: Person | undefined) => person?.nickname || per
 const SLIDE_MS = 700;
 /** How long the card takes to flip over to a spouse. */
 const FLIP_MS = 560;
+/** How long a spouse's card takes to show beside the focused person and tuck into their name. */
+const TUCK_MS = 650;
+
+/**
+ * Where each spouse's stand-in card starts (just right of the focused card, as a
+ * couple would stand) and where it ends: shrunk onto their name pill. Measured
+ * in the content box, so it rides along with the slide.
+ */
+function planSpouseTuck(box: HTMLElement, focused: HTMLElement, card: DOMRect, row: DOMRect) {
+  const area = box.getBoundingClientRect();
+  // Where the focused card comes to rest: the middle of its row.
+  const left = row.left + row.width / 2 - card.width / 2 - area.left;
+  const top = card.top - area.top;
+  return [...focused.querySelectorAll<HTMLElement>("[data-person-id]")].flatMap((pill, i) => {
+    const ghost = box.querySelector<HTMLElement>(`[data-spouse-ghost="${CSS.escape(pill.dataset.personId ?? "")}"]`);
+    if (!ghost) return [];
+    const startX = left + (card.width + 8) * (i + 1);
+    Object.assign(ghost.style, { left: `${startX}px`, top: `${top}px` });
+    const size = ghost.getBoundingClientRect();
+    const target = pill.getBoundingClientRect();
+    const dx = left + target.left - card.left - startX;
+    const dy = target.top - card.top;
+    const end = `translate(${dx}px, ${dy}px) scale(${target.width / size.width}, ${target.height / size.height})`;
+    return [{ ghost, pill, end }];
+  });
+}
 
 export interface FocusViewHandle {
   /** Call just before moving to someone without a tap, so they slide in from where they are. */
@@ -92,6 +118,8 @@ export function FocusView({
     const focused = box.querySelector<HTMLElement>("[data-focused]");
     const card = focused?.getBoundingClientRect();
     const row = box.querySelector<HTMLElement>("[data-carousel]")?.getBoundingClientRect();
+    // Measured now, before anything starts moving.
+    const tuck = focused && card && row ? planSpouseTuck(box, focused, card, row) : [];
     if (flip && focused && card) {
       // The card turns over, like the other side of the same card: the old one
       // turns away, the spouse's turns into view, in the same spot. Their
@@ -142,6 +170,28 @@ export function FocusView({
     } else {
       // Moved from somewhere else (search, the quick card): a soft fade instead.
       motion.current.push(box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" }));
+    }
+    // Once they're nearly in place, their spouse's card shows beside them and
+    // tucks itself away into the name on their card.
+    const settled = flip ? FLIP_MS : from ? SLIDE_MS * 0.55 : 150;
+    for (const { ghost, pill, end } of tuck) {
+      motion.current.push(
+        ghost.animate(
+          [
+            { opacity: 0, transform: "none" },
+            { opacity: 1, transform: "none", offset: 0.25 },
+            { opacity: 1, offset: 0.7 },
+            { opacity: 0, transform: end },
+          ],
+          { duration: TUCK_MS, delay: settled, easing: "ease-in-out" },
+        ),
+        pill.animate([{ opacity: 0, transform: "scale(0.6)" }, { opacity: 1, transform: "none" }], {
+          duration: 220,
+          delay: settled + TUCK_MS * 0.7,
+          easing: "ease-out",
+          fill: "backwards",
+        }),
+      );
     }
   }, [centerId]);
   // Don't leave a half-turned card behind if Focus view closes mid-flip.
@@ -225,7 +275,7 @@ export function FocusView({
 
   return (
     <div ref={scroller} className="absolute inset-0 overflow-x-hidden overflow-y-auto pt-32 pb-10">
-      <div ref={content} className="mx-auto flex max-w-3xl flex-col items-center px-2">
+      <div ref={content} className="relative mx-auto flex max-w-3xl flex-col items-center px-2">
         {/* The parents' row keeps its room even when empty, so the focused
             person is always in the same spot on screen. */}
         <Parents>{parents.map((id) => card(id))}</Parents>
@@ -276,6 +326,21 @@ export function FocusView({
             No one is linked to {firstName(center)} yet. Use Details → Edit details to add their parents or spouse.
           </p>
         )}
+
+        {/* Stand-ins for the spouse's card, invisible until the focus moves:
+            then they show beside the focused card and tuck into its name pill. */}
+        {spouses.map((id) => (
+          <div
+            key={id}
+            data-spouse-ghost={id}
+            aria-hidden
+            inert
+            className="pointer-events-none absolute top-0 left-0 z-[1] opacity-0"
+            style={{ transformOrigin: "0 0" }}
+          >
+            {card(id)}
+          </div>
+        ))}
       </div>
     </div>
   );
