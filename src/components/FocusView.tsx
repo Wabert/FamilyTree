@@ -345,15 +345,21 @@ function PersonCard({
       {spouses && spouses.length > 0 && (
         <div className="mt-1.5 w-full space-y-1 border-t border-leaf/30 pt-1.5">
           {spouses.map((spouse) => (
-            <button
-              key={spouse.id}
-              type="button"
-              onClick={() => onSpouse?.(spouse.id)}
-              className="block w-full cursor-pointer rounded-md px-0.5 text-center leading-tight hover:bg-card/70"
-            >
-              <span className="block truncate text-[11px] font-medium text-ink">{spouse.name}</span>
-              <span className="block truncate text-[9px] text-muted">{spouse.title}</span>
-            </button>
+            <div key={spouse.id} className="flex flex-col items-center leading-tight">
+              {/* A small pill with an arrow, so it reads as something to tap. */}
+              <button
+                type="button"
+                onClick={() => onSpouse?.(spouse.id)}
+                aria-label={`Go to ${spouse.name}`}
+                className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
+              >
+                <span className="truncate">{spouse.name}</span>
+                <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
+                  ›
+                </span>
+              </button>
+              <span className="mt-0.5 block max-w-full truncate text-[9px] text-muted">{spouse.title}</span>
+            </div>
           ))}
         </div>
       )}

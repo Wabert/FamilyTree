@@ -62,7 +62,13 @@ export function SearchBox({ people, onPick }: { people: Person[]; onPick(id: str
     <div
       className="relative"
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+        const box = e.currentTarget;
+        if (box.contains(e.relatedTarget)) return;
+        // Phones often blur the box before the tap on a name arrives (buttons there
+        // don't take focus), so close a moment later and let the tap land first.
+        window.setTimeout(() => {
+          if (!box.contains(document.activeElement)) setOpen(false);
+        }, 200);
       }}
     >
       <input
@@ -102,7 +108,10 @@ export function SearchBox({ people, onPick }: { people: Person[]; onPick(id: str
         className="h-[38px] w-full rounded-xl border border-line bg-card px-3 text-base text-ink shadow-sm outline-none placeholder:text-muted focus:border-leaf focus:ring-2 focus:ring-leaf/25 sm:text-sm"
       />
       {open && people.length > 0 && (
-        <div className="absolute top-full right-0 z-30 mt-1 flex max-h-[60dvh] w-[max(100%,16rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-line bg-card shadow-xl">
+        <div
+          // Keep the box focused while tapping in the list, so the tap isn't lost.
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute top-full right-0 z-30 mt-1 flex max-h-[60dvh] w-[max(100%,16rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-line bg-card shadow-xl">
           <p className="border-b border-line px-3 py-1.5 text-[11px] text-muted">
             {words.length
               ? `${matches.length} of ${people.length} ${people.length === 1 ? "person" : "people"}`
