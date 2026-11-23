@@ -46,6 +46,7 @@ export function TreeView({
   selectedId,
   relations,
   compact,
+  topInset = 0,
   onSelect,
   ref,
 }: {
@@ -55,6 +56,8 @@ export function TreeView({
   relations: Map<string, Relationship> | null;
   /** Smaller cards, used when relationship labels are turned off. */
   compact: boolean;
+  /** Height of the buttons floating over the top of the tree: the opening view starts below them. */
+  topInset?: number;
   onSelect(id: string): void;
   ref?: Ref<TreeViewHandle>;
 }) {
@@ -117,26 +120,37 @@ export function TreeView({
       const { width, height } = el.getBoundingClientRect();
       if (!width || !height || !layout.width) return;
       const pad = 28;
+      // A phone can't show a whole family at a size anyone can read, so there the
+      // tree opens close enough to read the names. Wider screens shrink it a
+      // little further to show more of it at once.
       const k = clamp(
         Math.min((width - pad * 2) / layout.width, (height - pad * 2) / layout.height),
-        0.5,
+        width < 768 ? FOCUS_ZOOM : 0.5,
         1,
       );
       const fitsWide = layout.width * k <= width - pad * 2;
       const fitsTall = layout.height * k <= height - pad * 2;
-      // On a small screen, open on the viewer's own branch rather than the top of the tree.
+      // When it doesn't all fit, open on the viewer's own card, or else on the top
+      // of the tree: below the buttons, and never scrolled past the tree's edges.
       const mine = layout.nodes.find((n) => n.id === meId);
       const focusX = mine ? mine.x + layout.cardW / 2 : layout.focus.x;
+      const top = topInset + 12;
+      const mineY = mine ? top + (height - top) / 2 - (mine.y + layout.cardH / 2) * k : top;
       setView({
         k,
-        x: fitsWide ? (width - layout.width * k) / 2 : width / 2 - focusX * k,
-        y: fitsTall ? (height - layout.height * k) / 2 : pad,
+        x: fitsWide
+          ? (width - layout.width * k) / 2
+          : clamp(width / 2 - focusX * k, width - pad - layout.width * k, pad),
+        // Centred when it fits, nudged down out from under the buttons where there is room to spare.
+        y: fitsTall
+          ? Math.max((height - layout.height * k) / 2, Math.min(top, height - pad - layout.height * k))
+          : clamp(mineY, height - pad - layout.height * k, top),
       });
     };
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [layout, meId, centerFocus]);
+  }, [layout, meId, topInset, centerFocus]);
 
   // Wheel needs a non-passive listener so the page itself doesn't scroll or zoom.
   useEffect(() => {

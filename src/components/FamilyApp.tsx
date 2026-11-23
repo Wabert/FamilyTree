@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { startTransition, useMemo, useRef, useState } from "react";
 import { buildIndex } from "@/lib/graph";
 import { relationship, type Relationship } from "@/lib/relationship";
 import { leaveFamily, signOut, type SessionState } from "@/lib/session";
@@ -15,7 +15,7 @@ import {
 } from "@/lib/store";
 import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode, setTreeStyle, useTreeStyle } from "@/lib/prefs";
 import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
-import { FocusView } from "./FocusView";
+import { FocusTrail, FocusView } from "./FocusView";
 import { InviteDialog } from "./InviteDialog";
 import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ListView } from "./ListView";
@@ -30,6 +30,9 @@ import { TreeView, type TreeViewHandle } from "./TreeView";
 const errorText = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
 const menuItem = "block w-full cursor-pointer px-4 py-2.5 text-left hover:bg-paper";
+
+/** Room the two rows of buttons take up over the top of the tree, in pixels. */
+const TREE_BUTTONS_HEIGHT = 96;
 
 export function FamilyApp({ session }: { session: SessionState }) {
   const { family, meId, mode, role, inviteCode, userId } = useAppState();
@@ -57,9 +60,8 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const viewMode = useViewMode();
   const treeStyle = useTreeStyle();
   const focusMode = viewMode === "tree" && treeStyle === "focus";
-  // People visited in Focus view, for its back and forward arrows.
+  // The people you came through in Focus view, oldest first: the trail shown above it.
   const [focusHistory, setFocusHistory] = useState<string[]>([]);
-  const [focusForward, setFocusForward] = useState<string[]>([]);
   const treeRef = useRef<TreeViewHandle>(null);
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
@@ -75,29 +77,28 @@ export function FamilyApp({ session }: { session: SessionState }) {
     )[0];
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
+  // Move Focus view to someone. The person you were on joins the trail; going to
+  // someone already on the trail steps back to them instead, so it stays a path
+  // and not a log. Done as a transition, which is what lets the cards glide to
+  // their new places.
   const goToInFocus = (id: string) => {
-    if (focusCenter && id !== focusCenter) {
-      setFocusHistory((h) => [...h, focusCenter].slice(-50));
-      setFocusForward([]);
-    }
-    setSelectedId(id);
+    const from = focusCenter;
+    startTransition(() => {
+      if (from && id !== from) {
+        setFocusHistory((trail) => {
+          const back = trail.indexOf(id);
+          if (back >= 0) return trail.slice(0, back);
+          const seen = trail.indexOf(from);
+          return [...(seen >= 0 ? trail.slice(0, seen) : trail), from].slice(-50);
+        });
+      }
+      setSelectedId(id);
+    });
   };
-  // Like a browser: back to who you saw before, forward again after going back.
-  const visible = (ids: string[]) => ids.filter((id) => index.byId.has(id));
-  const focusBack = () => {
-    const previous = visible(focusHistory).at(-1);
-    if (!previous) return;
-    setFocusHistory((h) => h.slice(0, h.lastIndexOf(previous)));
-    if (focusCenter) setFocusForward((f) => [...f, focusCenter]);
-    setSelectedId(previous);
-  };
-  const focusAhead = () => {
-    const next = visible(focusForward).at(-1);
-    if (!next) return;
-    setFocusForward((f) => f.slice(0, f.lastIndexOf(next)));
-    if (focusCenter) setFocusHistory((h) => [...h, focusCenter]);
-    setSelectedId(next);
-  };
+  // The trail as shown: people still in the tree, up to (not including) whoever is in the middle now.
+  const cameThrough = focusHistory.flatMap((id) => index.byId.get(id) ?? []);
+  const here = cameThrough.findIndex((p) => p.id === focusCenter);
+  const focusTrail = here >= 0 ? cameThrough.slice(0, here) : cameThrough;
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],
@@ -151,6 +152,19 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const focusPerson = (id: string) => {
     setSelectedId(id);
     window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays), 60);
+  };
+
+  // Jumping to someone by name (search, or a relative in the quick card): also
+  // scrolls the list to them, when that is the view showing.
+  const jumpTo = (id: string) => {
+    setFocusTick((n) => n + 1);
+    focusPerson(id);
+  };
+
+  // Coming back to the whole tree from Focus, the list or the map: bring the
+  // person you were on into the middle, instead of leaving them to be found again.
+  const returnToWholeTree = () => {
+    if (selected) focusPerson(selected.id);
   };
 
   // Tapping a card on a phone would otherwise hide it behind the bottom sheet.
@@ -463,6 +477,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 selectedId={selectedId}
                 relations={relations}
                 compact={!showRelations}
+                topInset={TREE_BUTTONS_HEIGHT}
                 onSelect={selectFromTree}
               />
             )}
@@ -480,7 +495,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     key={mode}
                     type="button"
                     aria-pressed={viewMode === mode}
-                    onClick={() => setViewMode(mode)}
+                    onClick={() => {
+                      setViewMode(mode);
+                      if (mode === "tree" && viewMode !== "tree" && treeStyle === "whole") returnToWholeTree();
+                    }}
                     className={[
                       "cursor-pointer px-3 py-2 font-medium capitalize sm:px-3.5",
                       viewMode === mode ? "bg-leaf text-white" : "text-ink hover:bg-paper",
@@ -493,23 +511,17 @@ export function FamilyApp({ session }: { session: SessionState }) {
               <div className="pointer-events-auto min-w-0 flex-1 sm:max-w-64">
                 <SearchBox
                   people={family.people}
-                  onPick={(id) => {
-                    if (focusMode) {
-                      goToInFocus(id);
-                      return;
-                    }
-                    setFocusTick((n) => n + 1);
-                    focusPerson(id);
-                  }}
+                  onPick={(id) => (focusMode ? goToInFocus(id) : jumpTo(id))}
                 />
               </div>
             </div>
             {viewMode === "tree" && (
-              <div className="absolute top-[4.25rem] left-4 z-[5] flex items-center gap-2">
+              // Phones: the trail on its own line under the buttons. Wider screens: beside them.
+              <div className="pointer-events-none absolute inset-x-4 top-[4.25rem] z-[5] flex flex-wrap items-center gap-x-2 gap-y-1.5">
               <div
                 role="group"
                 aria-label="How much of the tree to show"
-                className="flex overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
+                className="pointer-events-auto flex shrink-0 overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
               >
                 {(
                   [
@@ -521,7 +533,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
                     key={style}
                     type="button"
                     aria-pressed={treeStyle === style}
-                    onClick={() => setTreeStyle(style)}
+                    onClick={() => {
+                      setTreeStyle(style);
+                      if (style === "whole" && treeStyle !== "whole") returnToWholeTree();
+                    }}
                     className={[
                       "cursor-pointer px-3 py-1 font-medium",
                       treeStyle === style ? "bg-leaf text-white" : "text-ink hover:bg-paper",
@@ -531,26 +546,14 @@ export function FamilyApp({ session }: { session: SessionState }) {
                   </button>
                 ))}
               </div>
-              {focusMode && (
-                <div className="flex gap-1">
-                  {(
-                    [
-                      ["Back to the previous person", "‹", focusBack, visible(focusHistory).length > 0],
-                      ["Forward again", "›", focusAhead, visible(focusForward).length > 0],
-                    ] as const
-                  ).map(([label, arrow, go, enabled]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={go}
-                      disabled={!enabled}
-                      aria-label={label}
-                      title={label}
-                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-line bg-card text-lg leading-none text-ink shadow-sm hover:border-leaf disabled:cursor-default disabled:opacity-35 disabled:hover:border-line"
-                    >
-                      {arrow}
-                    </button>
-                  ))}
+              {focusMode && focusCenter && (
+                <div className="pointer-events-auto w-full min-w-0 sm:w-auto sm:flex-1">
+                  <FocusTrail
+                    trail={focusTrail}
+                    current={index.byId.get(focusCenter)!}
+                    me={me ? index.byId.get(me) : undefined}
+                    onGo={goToInFocus}
+                  />
                 </div>
               )}
               </div>
@@ -573,6 +576,11 @@ export function FamilyApp({ session }: { session: SessionState }) {
             showRelation={showRelations}
             onClose={() => setSelectedId(null)}
             onDetails={() => setDetailsId(selected.id)}
+            onGo={jumpTo}
+            onFocus={() => {
+              setViewMode("tree");
+              setTreeStyle("focus");
+            }}
           />
         )}
       </main>

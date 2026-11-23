@@ -62,6 +62,17 @@ export function descendantsOf(index: FamilyIndex, id: string): Set<string> {
   return seen;
 }
 
+/**
+ * A sort for people's ids: oldest first. People without a birth year keep the
+ * order they were added, so rows never reshuffle.
+ */
+export function oldestFirst(index: FamilyIndex): (a: string, b: string) => number {
+  const added = new Map([...index.byId.keys()].map((id, i) => [id, i]));
+  return (a, b) =>
+    (index.byId.get(a)?.birthYear ?? Infinity) - (index.byId.get(b)?.birthYear ?? Infinity) ||
+    (added.get(a) ?? 0) - (added.get(b) ?? 0);
+}
+
 export function siblingsOf(index: FamilyIndex, id: string): string[] {
   const result: string[] = [];
   for (const parentId of index.parentsOf(id)) {

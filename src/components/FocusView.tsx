@@ -1,22 +1,21 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, ViewTransition } from "react";
 import type { ReactNode } from "react";
-import { siblingsOf, type FamilyIndex } from "@/lib/graph";
+import { oldestFirst, siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
 import type { Person } from "@/lib/types";
 import { Avatar, lifespan } from "./Avatar";
 
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-const firstName = (person: Person | undefined) => person?.nickname || person?.name.split(/\s+/)[0] || "";
-/** Oldest first; people without a birth year keep the order they were added, so rows never reshuffle. */
-const byAge = (index: FamilyIndex) => {
-  const added = new Map([...index.byId.keys()].map((id, i) => [id, i]));
-  return (a: string, b: string) =>
-    (index.byId.get(a)?.birthYear ?? Infinity) - (index.byId.get(b)?.birthYear ?? Infinity) ||
-    (added.get(a) ?? 0) - (added.get(b) ?? 0);
-};
+/** What the family calls them: their nickname, or else their first name. */
+export const firstName = (person: Person | undefined) => person?.nickname || person?.name.split(/\s+/)[0] || "";
+/**
+ * One name per person for the browser's view transitions: when the focus moves,
+ * a person's card glides from where it was to where it is now.
+ */
+const glideName = (id: string) => `person-${id.replace(/[^\w-]/g, "_")}`;
 
 /**
  * One person at a time: their parents, spouse, siblings and
@@ -43,17 +42,18 @@ export function FocusView({
   onDetails(id: string): void;
 }) {
   // Moving to someone by tapping starts at the top, with their parents in
-  // view; swiping along the siblings keeps the page where it is.
+  // view; swiping along the siblings keeps the page where it is. (A layout
+  // effect, so the page is already in place when the cards start to glide.)
   const scroller = useRef<HTMLDivElement>(null);
   const swipedTo = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (swipedTo.current !== centerId) scroller.current?.scrollTo({ top: 0 });
     swipedTo.current = null;
   }, [centerId]);
 
   const center = index.byId.get(centerId);
   if (!center) return null;
-  const age = byAge(index);
+  const age = oldestFirst(index);
 
   const parents = [...index.parentsOf(centerId)].sort(age);
   const spouses = orderSpouses(index, centerId, index.spousesOf(centerId)).reverse();
@@ -81,18 +81,22 @@ export function FocusView({
     .flatMap(([, kids]) => kids);
 
   const card = (id: string, note?: string) => (
-    <PersonCard
-      key={id}
-      person={index.byId.get(id)!}
-      relation={relations?.get(id)}
-      note={note}
-      isMe={id === meId}
-      onClick={() => onCenter(id)}
-    />
+    <ViewTransition key={id} name={glideName(id)}>
+      <PersonCard
+        person={index.byId.get(id)!}
+        relation={relations?.get(id)}
+        note={note}
+        isMe={id === meId}
+        onClick={() => onCenter(id)}
+      />
+    </ViewTransition>
   );
+  // A spouse's name glides too (into their card, when you move to them), unless
+  // they already have a card on screen: a name can only belong to one thing.
+  const hasCard = new Set([...parents, ...brood, ...children]);
 
   return (
-    <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-32 pb-10">
+    <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-36 pb-10 sm:pt-32">
       <div className="mx-auto flex max-w-3xl flex-col items-center px-2">
         {parents.length > 0 && (
           <>
@@ -105,26 +109,29 @@ export function FocusView({
           ids={brood}
           centerId={centerId}
           renderCard={(id, focused) => (
-            <PersonCard
-              person={index.byId.get(id)!}
-              relation={relations?.get(id)}
-              note={!focused && isHalf(id) ? "Half-sibling" : undefined}
-              isMe={id === meId}
-              focused={focused}
-              spouses={
-                focused
-                  ? spouses.map((s) => ({
-                      id: s,
-                      name: index.byId.get(s)?.name ?? "",
-                      title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
-                        .filter(Boolean)
-                        .join(" · "),
-                    }))
-                  : undefined
-              }
-              onSpouse={onCenter}
-              onClick={() => (focused ? onDetails(id) : undefined)}
-            />
+            <ViewTransition name={glideName(id)}>
+              <PersonCard
+                person={index.byId.get(id)!}
+                relation={relations?.get(id)}
+                note={!focused && isHalf(id) ? "Half-sibling" : undefined}
+                isMe={id === meId}
+                focused={focused}
+                spouses={
+                  focused
+                    ? spouses.map((s) => ({
+                        id: s,
+                        name: index.byId.get(s)?.name ?? "",
+                        title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
+                          .filter(Boolean)
+                          .join(" · "),
+                        glides: !hasCard.has(s),
+                      }))
+                    : undefined
+                }
+                onSpouse={onCenter}
+                onClick={() => (focused ? onDetails(id) : undefined)}
+              />
+            </ViewTransition>
           )}
           onSettle={(id) => {
             swipedTo.current = id;
@@ -146,6 +153,69 @@ export function FocusView({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Above Focus view: the people you came through to get here, each one a tap to
+ * step back to them, and a way home to yourself.
+ */
+export function FocusTrail({
+  trail,
+  current,
+  me,
+  onGo,
+}: {
+  /** Who you came through, oldest first. Empty until you have moved. */
+  trail: Person[];
+  current: Person;
+  me: Person | undefined;
+  onGo(id: string): void;
+}) {
+  // Keep the newest end of a long trail in view.
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    row.current?.scrollTo({ left: row.current.scrollWidth });
+  }, [trail.length, current.id]);
+
+  const chip =
+    "shrink-0 cursor-pointer rounded-full border bg-card px-2.5 py-1 font-medium shadow-sm hover:border-leaf active:bg-leaf-soft";
+  return (
+    <nav aria-label="How you got here" className="flex min-w-0 items-center gap-2 text-xs">
+      {me && me.id !== current.id && (
+        <button
+          type="button"
+          onClick={() => onGo(me.id)}
+          aria-label={`Back to me (${me.name})`}
+          className={`${chip} border-leaf text-leaf-dark`}
+        >
+          Me
+        </button>
+      )}
+      {trail.length > 0 && (
+        <div ref={row} className="flex min-w-0 items-center gap-1 overflow-x-auto py-0.5 [scrollbar-width:none]">
+          {trail.map((person) => (
+            <Fragment key={person.id}>
+              <button
+                type="button"
+                onClick={() => onGo(person.id)}
+                aria-label={`Back to ${person.name}`}
+                title={person.name}
+                className={`${chip} border-line text-ink`}
+              >
+                {firstName(person)}
+              </button>
+              <span aria-hidden className="shrink-0 text-muted">
+                ›
+              </span>
+            </Fragment>
+          ))}
+          <span aria-current="true" title={current.name} className="shrink-0 px-1 font-semibold text-ink">
+            {firstName(current)}
+          </span>
+        </div>
+      )}
+    </nav>
   );
 }
 
@@ -289,7 +359,7 @@ function PersonCard({
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
   /** Shown inside the focused card, e.g. "Wife · m. 2004: Linda Hartley". */
-  spouses?: { id: string; name: string; title: string }[];
+  spouses?: { id: string; name: string; title: string; glides: boolean }[];
   onSpouse?(id: string): void;
   onClick(): void;
 }) {
@@ -347,17 +417,19 @@ function PersonCard({
           {spouses.map((spouse) => (
             <div key={spouse.id} className="flex flex-col items-center leading-tight">
               {/* A small pill with an arrow, so it reads as something to tap. */}
-              <button
-                type="button"
-                onClick={() => onSpouse?.(spouse.id)}
-                aria-label={`Go to ${spouse.name}`}
-                className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
-              >
-                <span className="truncate">{spouse.name}</span>
-                <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
-                  ›
-                </span>
-              </button>
+              <ViewTransition name={spouse.glides ? glideName(spouse.id) : undefined}>
+                <button
+                  type="button"
+                  onClick={() => onSpouse?.(spouse.id)}
+                  aria-label={`Go to ${spouse.name}`}
+                  className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
+                >
+                  <span className="truncate">{spouse.name}</span>
+                  <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
+                    ›
+                  </span>
+                </button>
+              </ViewTransition>
               <span className="mt-0.5 block max-w-full truncate text-[9px] text-muted">{spouse.title}</span>
             </div>
           ))}
