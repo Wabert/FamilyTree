@@ -11,8 +11,11 @@ import { Avatar, lifespan } from "./Avatar";
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** What the family calls them: their nickname, or else their first name. */
 export const firstName = (person: Person | undefined) => person?.nickname || person?.name.split(/\s+/)[0] || "";
-/** How long the view takes to slide a tapped card into the middle. */
-const SLIDE_MS = 450;
+/**
+ * How long the view takes to slide a tapped card into the middle: about as long
+ * as the siblings row's smooth scroll, so both moves feel the same.
+ */
+const SLIDE_MS = 700;
 
 /**
  * One person at a time: their parents, spouse, siblings and
@@ -76,7 +79,8 @@ export function FocusView({
       const dy = from.top - card.top;
       slide.current = box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
         duration: SLIDE_MS,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        // Eases in and out like a scroll, rather than darting most of the way at once.
+        easing: "cubic-bezier(0.45, 0, 0.2, 1)",
       });
     } else {
       // Moved from somewhere else (search, the quick card): a soft fade instead.
