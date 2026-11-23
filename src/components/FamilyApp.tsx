@@ -15,7 +15,7 @@ import {
 } from "@/lib/store";
 import { setShowRelations, setViewMode, useShowRelations, useViewMode, type ViewMode, setTreeStyle, useTreeStyle } from "@/lib/prefs";
 import { ChangeHistoryDialog } from "./ChangeHistoryDialog";
-import { FocusView } from "./FocusView";
+import { FocusView, type FocusViewHandle } from "./FocusView";
 import { InviteDialog } from "./InviteDialog";
 import { KeepAccessDialog } from "./KeepAccessDialog";
 import { ListView } from "./ListView";
@@ -77,8 +77,42 @@ export function FamilyApp({ session }: { session: SessionState }) {
     )[0];
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
-  // Move Focus view to someone. (Focus view slides them into the middle itself.)
-  const goToInFocus = (id: string) => setSelectedId(id);
+  // People visited in Focus view, for its back and forward buttons.
+  const [focusBackList, setFocusBackList] = useState<string[]>([]);
+  const [focusAheadList, setFocusAheadList] = useState<string[]>([]);
+  const focusRef = useRef<FocusViewHandle>(null);
+  // Swiping along a row of siblings is one step back, not one per sibling.
+  const swiping = useRef(false);
+  // Move Focus view to someone, remembering who you were on.
+  const goToInFocus = (id: string, swiped = false) => {
+    if (focusCenter && id !== focusCenter && !(swiped && swiping.current)) {
+      setFocusBackList((h) => [...h, focusCenter].slice(-50));
+      setFocusAheadList([]);
+    }
+    swiping.current = swiped;
+    if (!swiped) focusRef.current?.slideFrom(id);
+    setSelectedId(id);
+  };
+  // Like a browser: back to who you saw before, forward again after going back.
+  const visible = (ids: string[]) => ids.filter((id) => index.byId.has(id));
+  const focusBack = () => {
+    const previous = visible(focusBackList).at(-1);
+    if (!previous) return;
+    setFocusBackList((h) => h.slice(0, h.lastIndexOf(previous)));
+    if (focusCenter) setFocusAheadList((f) => [...f, focusCenter]);
+    swiping.current = false;
+    focusRef.current?.slideFrom(previous);
+    setSelectedId(previous);
+  };
+  const focusAhead = () => {
+    const next = visible(focusAheadList).at(-1);
+    if (!next) return;
+    setFocusAheadList((f) => f.slice(0, f.lastIndexOf(next)));
+    if (focusCenter) setFocusBackList((h) => [...h, focusCenter]);
+    swiping.current = false;
+    focusRef.current?.slideFrom(next);
+    setSelectedId(next);
+  };
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],
@@ -448,12 +482,13 @@ export function FamilyApp({ session }: { session: SessionState }) {
               <MapView family={family} selectedId={selectedId} onSelect={setSelectedId} />
             ) : focusMode && focusCenter ? (
               <FocusView
+                ref={focusRef}
                 index={index}
                 centerId={focusCenter}
                 meId={me}
                 relations={relations}
-                onCenter={goToInFocus}
-                onSwipe={(id) => setSelectedId(id)}
+                onCenter={(id) => goToInFocus(id)}
+                onSwipe={(id) => goToInFocus(id, true)}
                 onDetails={(id) => {
                   setSelectedId(id);
                   setDetailsId(id);
@@ -535,6 +570,28 @@ export function FamilyApp({ session }: { session: SessionState }) {
                   </button>
                 ))}
               </div>
+              {focusMode && (
+                <div className="pointer-events-auto flex gap-1">
+                  {(
+                    [
+                      ["Back to the previous person", "‹", visible(focusBackList).length > 0],
+                      ["Forward again", "›", visible(focusAheadList).length > 0],
+                    ] as const
+                  ).map(([label, arrow, enabled]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => (arrow === "‹" ? focusBack() : focusAhead())}
+                      disabled={!enabled}
+                      aria-label={label}
+                      title={label}
+                      className="flex h-[1.625rem] w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-card pb-0.5 text-lg leading-none font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft disabled:cursor-default disabled:opacity-35 disabled:hover:border-line disabled:active:bg-card"
+                    >
+                      {arrow}
+                    </button>
+                  ))}
+                </div>
+              )}
               </div>
             )}
             {!me && showRelations && !selected && viewMode !== "map" && !focusMode && (

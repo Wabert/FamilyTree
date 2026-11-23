@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import type { ReactNode, Ref } from "react";
 import { oldestFirst, siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
 import type { Relationship } from "@/lib/relationship";
@@ -17,6 +17,11 @@ export const firstName = (person: Person | undefined) => person?.nickname || per
  */
 const SLIDE_MS = 700;
 
+export interface FocusViewHandle {
+  /** Call just before moving to someone without a tap, so they slide in from where they are. */
+  slideFrom(id: string): void;
+}
+
 /**
  * One person at a time: their parents, spouse, siblings and
  * children around them. Tap anyone to move to them. Made for phones, where the
@@ -30,16 +35,18 @@ export function FocusView({
   onCenter,
   onSwipe,
   onDetails,
+  ref,
 }: {
   index: FamilyIndex;
   centerId: string;
   meId: string | null;
   relations: Map<string, Relationship> | null;
   onCenter(id: string): void;
-  /** Swiping the siblings row to someone: moves the focus without a history step. */
+  /** Swiping the siblings row to someone. */
   onSwipe(id: string): void;
   /** Tapping the focused (green) person opens their details. */
   onDetails(id: string): void;
+  ref?: Ref<FocusViewHandle>;
 }) {
   // Moving to someone by tapping starts at the top, with their parents in
   // view; swiping along the siblings keeps the page where it is. (A layout
@@ -50,11 +57,14 @@ export function FocusView({
   // Where the card you tapped was on screen, so the view can slide it from there
   // into the middle, the way a sibling slides along their row.
   const tappedFrom = useRef<{ id: string; left: number; top: number } | null>(null);
+  // Going back or forward to a sibling: their row glides them into the middle.
+  const glideRowTo = useRef<string | null>(null);
   const slide = useRef<Animation | null>(null);
   const firstRender = useRef(true);
   useLayoutEffect(() => {
-    const swiped = swipedTo.current === centerId;
+    const swiped = swipedTo.current === centerId || glideRowTo.current === centerId;
     swipedTo.current = null;
+    glideRowTo.current = null;
     const from = tappedFrom.current?.id === centerId ? tappedFrom.current : null;
     tappedFrom.current = null;
     if (firstRender.current) {
@@ -88,12 +98,26 @@ export function FocusView({
     }
   }, [centerId]);
 
-  // Tapping a card (or a spouse's name): note where it is, then move to them.
-  const goFrom = (id: string, el: HTMLElement) => {
+  const noteFrom = (id: string, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
     tappedFrom.current = { id, left: rect.left + rect.width / 2, top: rect.top };
+  };
+  // Tapping a card (or a spouse's name): note where it is, then move to them.
+  const goFrom = (id: string, el: HTMLElement) => {
+    noteFrom(id, el);
     onCenter(id);
   };
+  // Moving some other way (back, forward, search): if they're on screen, slide
+  // them in from where they are, just as if they'd been tapped.
+  useImperativeHandle(ref, () => ({
+    slideFrom(id: string) {
+      if (tappedFrom.current?.id === id || id === centerId) return;
+      const el = content.current?.querySelector<HTMLElement>(`[data-person-id="${CSS.escape(id)}"]`);
+      if (!el) return;
+      if (el.closest("[data-carousel]")) glideRowTo.current = id;
+      else noteFrom(id, el);
+    },
+  }));
 
   const center = index.byId.get(centerId);
   if (!center) return null;
@@ -148,6 +172,7 @@ export function FocusView({
         <SiblingCarousel
           ids={brood}
           centerId={centerId}
+          glideTo={glideRowTo}
           renderCard={(id, focused) => (
             <PersonCard
               person={index.byId.get(id)!}
@@ -201,11 +226,14 @@ export function FocusView({
 function SiblingCarousel({
   ids,
   centerId,
+  glideTo: glideToNext,
   renderCard,
   onSettle,
 }: {
   ids: string[];
   centerId: string;
+  /** Set when the focus moves to a sibling without a tap (back, forward): glide there. */
+  glideTo: { current: string | null };
   renderCard(id: string, focused: boolean): ReactNode;
   onSettle(id: string): void;
 }) {
@@ -227,10 +255,13 @@ function SiblingCarousel({
     const el = container?.querySelector<HTMLElement>(`[data-slot="${centerId}"]`);
     if (!container || !el) return;
     // After a swipe the card is already in the middle: leave the row alone so nothing
-    // fights the finger. Otherwise (a tap elsewhere, Back, search) jump straight there.
+    // fights the finger. Back or forward to a sibling glides there like a tap on
+    // them; anything else (a move to a parent or child, search) jumps straight there.
     const target = offsetFor(el, container);
-    if (Math.abs(container.scrollLeft - target) > 2) container.scrollTo({ left: target, behavior: "instant" });
-  }, [centerId, ids]);
+    const glide = glideToNext.current === centerId;
+    if (Math.abs(container.scrollLeft - target) > 2)
+      container.scrollTo({ left: target, behavior: glide ? "smooth" : "instant" });
+  }, [centerId, ids, glideToNext]);
 
   useEffect(() => () => window.clearTimeout(settle.current), []);
 
@@ -379,8 +410,10 @@ function PersonCard({
     return (
       <button
         type="button"
+        data-person-id={person.id}
         onClick={(e) => onClick(e.currentTarget)}
-        className={`${look} cursor-pointer transition-shadow hover:shadow-md`}>
+        className={`${look} cursor-pointer transition-shadow hover:shadow-md`}
+      >
         {body}
       </button>
     );
@@ -402,16 +435,17 @@ function PersonCard({
             <div key={spouse.id} className="flex flex-col items-center leading-tight">
               {/* A small pill with an arrow, so it reads as something to tap. */}
               <button
-                  type="button"
-                  onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
-                  aria-label={`Go to ${spouse.name}`}
-                  className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
-                >
-                  <span className="truncate">{spouse.name}</span>
-                  <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
-                    ›
-                  </span>
-                </button>
+                type="button"
+                data-person-id={spouse.id}
+                onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
+                aria-label={`Go to ${spouse.name}`}
+                className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
+              >
+                <span className="truncate">{spouse.name}</span>
+                <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
+                  ›
+                </span>
+              </button>
               <span className="mt-0.5 block max-w-full truncate text-[9px] text-muted">{spouse.title}</span>
             </div>
           ))}
