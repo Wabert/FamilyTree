@@ -16,6 +16,8 @@ export const firstName = (person: Person | undefined) => person?.nickname || per
  * as the siblings row's smooth scroll, so both moves feel the same.
  */
 const SLIDE_MS = 700;
+/** How long the card takes to flip over to a spouse. */
+const FLIP_MS = 560;
 
 export interface FocusViewHandle {
   /** Call just before moving to someone without a tap, so they slide in from where they are. */
@@ -59,7 +61,10 @@ export function FocusView({
   const tappedFrom = useRef<{ id: string; left: number; top: number } | null>(null);
   // Going back or forward to a sibling: their row glides them into the middle.
   const glideRowTo = useRef<string | null>(null);
-  const slide = useRef<Animation | null>(null);
+  // Moving to a spouse: a copy of the card as it was, to flip over to them.
+  const flipFrom = useRef<{ id: string; card: HTMLElement } | null>(null);
+  const motion = useRef<Animation[]>([]);
+  const leftover = useRef<HTMLElement | null>(null);
   const firstRender = useRef(true);
   useLayoutEffect(() => {
     const swiped = swipedTo.current === centerId || glideRowTo.current === centerId;
@@ -67,6 +72,8 @@ export function FocusView({
     glideRowTo.current = null;
     const from = tappedFrom.current?.id === centerId ? tappedFrom.current : null;
     tappedFrom.current = null;
+    const flip = flipFrom.current?.id === centerId ? flipFrom.current : null;
+    flipFrom.current = null;
     if (firstRender.current) {
       firstRender.current = false;
       return;
@@ -77,44 +84,101 @@ export function FocusView({
     // Plays even with the phone's Reduce Motion setting on, like the sibling row's
     // own smooth scroll: it's the same kind of move, and the way you keep your place.
     const box = content.current;
-    slide.current?.cancel();
+    for (const anim of motion.current) anim.cancel();
+    motion.current = [];
+    leftover.current?.remove();
+    leftover.current = null;
     if (!box) return;
-    const card = box.querySelector<HTMLElement>("[data-focused]")?.getBoundingClientRect();
+    const focused = box.querySelector<HTMLElement>("[data-focused]");
+    const card = focused?.getBoundingClientRect();
     const row = box.querySelector<HTMLElement>("[data-carousel]")?.getBoundingClientRect();
-    if (from && card && row) {
+    if (flip && focused && card) {
+      // The card turns over, like the other side of the same card: the old one
+      // turns away, the spouse's turns into view, in the same spot. Their
+      // parents and siblings fade in around them; the children stay put.
+      const old = flip.card;
+      Object.assign(old.style, {
+        position: "fixed",
+        left: `${card.left}px`,
+        top: `${card.top}px`,
+        width: `${card.width}px`,
+        margin: "0",
+        zIndex: "4",
+        pointerEvents: "none",
+      });
+      document.body.append(old);
+      leftover.current = old;
+      const half = FLIP_MS / 2;
+      const turnAway = old.animate(
+        [{ transform: "perspective(700px) rotateY(0deg)" }, { transform: "perspective(700px) rotateY(90deg)" }],
+        { duration: half, easing: "ease-in", fill: "forwards" },
+      );
+      turnAway.onfinish = () => old.remove();
+      motion.current.push(
+        turnAway,
+        focused.animate(
+          [{ transform: "perspective(700px) rotateY(-90deg)" }, { transform: "perspective(700px) rotateY(0deg)" }],
+          { duration: half, delay: half, easing: "ease-out", fill: "backwards" },
+        ),
+        ...[...box.querySelectorAll<HTMLElement>("[data-parents], [data-slot]")]
+          .filter((el) => !el.contains(focused))
+          .map((el) =>
+            el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: half, delay: half, easing: "ease-out", fill: "backwards" }),
+          ),
+      );
+    } else if (from && card && row) {
       // Everything moves together: the tapped card starts where your finger was
       // and lands in the middle of its row (where the row snaps it, even if the
       // row hasn't finished settling yet), with its family coming along around it.
       const dx = from.left - (row.left + row.width / 2);
       const dy = from.top - card.top;
-      slide.current = box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
-        duration: SLIDE_MS,
-        // Eases in and out like a scroll, rather than darting most of the way at once.
-        easing: "cubic-bezier(0.45, 0, 0.2, 1)",
-      });
+      motion.current.push(
+        box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+          duration: SLIDE_MS,
+          // Eases in and out like a scroll, rather than darting most of the way at once.
+          easing: "cubic-bezier(0.45, 0, 0.2, 1)",
+        }),
+      );
     } else {
       // Moved from somewhere else (search, the quick card): a soft fade instead.
-      slide.current = box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+      motion.current.push(box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" }));
     }
   }, [centerId]);
+  // Don't leave a half-turned card behind if Focus view closes mid-flip.
+  useEffect(() => () => leftover.current?.remove(), []);
 
   const noteFrom = (id: string, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
     tappedFrom.current = { id, left: rect.left + rect.width / 2, top: rect.top };
   };
-  // Tapping a card (or a spouse's name): note where it is, then move to them.
+  // A spouse's name is on the focused card: copy the card to flip over from.
+  const noteFlip = (id: string) => {
+    const card = content.current?.querySelector<HTMLElement>("[data-focused]");
+    if (!card) return;
+    const copy = card.cloneNode(true) as HTMLElement;
+    copy.removeAttribute("data-focused");
+    copy.setAttribute("aria-hidden", "true");
+    flipFrom.current = { id, card: copy };
+  };
+  // Tapping a card: note where it is, then move to them.
   const goFrom = (id: string, el: HTMLElement) => {
     noteFrom(id, el);
     onCenter(id);
   };
-  // Moving some other way (back, forward, search): if they're on screen, slide
+  // Tapping a spouse's name: the card flips over to them.
+  const goToSpouse = (id: string) => {
+    noteFlip(id);
+    onCenter(id);
+  };
+  // Moving some other way (back, forward, search): if they're on screen, move
   // them in from where they are, just as if they'd been tapped.
   useImperativeHandle(ref, () => ({
     slideFrom(id: string) {
-      if (tappedFrom.current?.id === id || id === centerId) return;
+      if (tappedFrom.current?.id === id || flipFrom.current?.id === id || id === centerId) return;
       const el = content.current?.querySelector<HTMLElement>(`[data-person-id="${CSS.escape(id)}"]`);
       if (!el) return;
-      if (el.closest("[data-carousel]")) glideRowTo.current = id;
+      if (el.closest("[data-focused]")) noteFlip(id);
+      else if (el.closest("[data-carousel]")) glideRowTo.current = id;
       else noteFrom(id, el);
     },
   }));
@@ -162,12 +226,10 @@ export function FocusView({
   return (
     <div ref={scroller} className="absolute inset-0 overflow-x-hidden overflow-y-auto pt-32 pb-10">
       <div ref={content} className="mx-auto flex max-w-3xl flex-col items-center px-2">
-        {parents.length > 0 && (
-          <>
-            <Parents>{parents.map((id) => card(id))}</Parents>
-            <Line />
-          </>
-        )}
+        {/* The parents' row keeps its room even when empty, so the focused
+            person is always in the same spot on screen. */}
+        <Parents>{parents.map((id) => card(id))}</Parents>
+        {parents.length > 0 ? <Line /> : <span aria-hidden className="block h-5 shrink-0" />}
 
         <SiblingCarousel
           ids={brood}
@@ -191,7 +253,7 @@ export function FocusView({
                     }))
                   : undefined
               }
-              onSpouse={goFrom}
+              onSpouse={goToSpouse}
               onClick={() => (focused ? onDetails(id) : undefined)}
             />
           )}
@@ -288,22 +350,20 @@ function SiblingCarousel({
 
   // Room at both ends so the oldest and youngest can sit in the middle too.
   const spacer = <span aria-hidden className="shrink-0" style={{ width: "calc(50% - 4rem)" }} />;
-  // Room below for the spouse circles that hang off the focused card's bottom
-  // edge (a scrolling row clips anything outside it), then pulled back up so
-  // the line down to the children still starts at the card.
   return (
     <div
       ref={row}
       data-carousel
       onScroll={onScroll}
-      className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain -mb-3 pb-4 [scrollbar-width:none]"
+      className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none]"
     >
       {spacer}
       {ids.map((id) => (
         <div
           key={id}
           data-slot={id}
-          className="shrink-0 snap-center"
+          // A flex box, so every card in the row stretches to the same height.
+          className="flex shrink-0 snap-center"
           onClickCapture={(e) => {
             if (id === centerId) return;
             e.stopPropagation();
@@ -323,13 +383,19 @@ function Line() {
   return <span aria-hidden className="block h-5 w-px shrink-0 bg-line" />;
 }
 
-/** The parents side by side, joined by a short line, like a couple in the whole tree. */
-function Parents({ children }: { children: ReactNode }) {
+/**
+ * The parents side by side, joined by a short line, like a couple in the whole
+ * tree. Always the same height, even with no parents, so the row below (the
+ * focused person) never moves; the cards sit at its bottom, near the line down.
+ */
+function Parents({ children }: { children: ReactNode[] }) {
   return (
-    <div className="w-full overflow-x-auto">
-      <div className="relative mx-auto flex w-max gap-4 px-2">
-        {/* Between the two cards, at the middle of their height. */}
-        <span aria-hidden className="absolute top-1/2 left-1/2 h-px w-4 -translate-x-1/2 bg-line" />
+    <div data-parents className="flex h-[6.75rem] w-full shrink-0 items-end justify-center">
+      <div className="relative flex w-max items-end gap-4 px-2">
+        {children.length > 1 && (
+          // Between the two cards, about the middle of their height.
+          <span aria-hidden className="absolute bottom-11 left-1/2 h-px w-4 -translate-x-1/2 bg-line" />
+        )}
         {children}
       </div>
     </div>
@@ -372,7 +438,7 @@ function PersonCard({
   isMe: boolean;
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
-  /** Circles on the focused card's bottom edge, e.g. Linda Hartley, "Wife · m. 2004". */
+  /** Names at the bottom of the focused card, e.g. Linda Hartley ("Wife · m. 2004" when held). */
   spouses?: { id: string; name: string; title: string }[];
   onSpouse?(id: string, el: HTMLElement): void;
   /** Given the card's element, so the view can slide from where it was. */
@@ -380,9 +446,7 @@ function PersonCard({
 }) {
   const dead = person.deathYear !== undefined;
   const look = [
-    // Every card has room at the bottom for the spouse circles, so a card is the
-    // same size with or without them.
-    "relative flex w-28 shrink-0 flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-4 text-center",
+    "flex w-28 shrink-0 flex-col items-center rounded-2xl border px-1.5 pt-2.5 pb-2 text-center",
     focused ? "border-leaf bg-leaf-soft shadow-md" : dead ? "bg-memorial" : "bg-card shadow-sm",
     isMe ? "border-leaf ring-2 ring-leaf" : focused ? "ring-1 ring-leaf" : "border-line",
   ].join(" ");
@@ -418,7 +482,7 @@ function PersonCard({
       </button>
     );
   }
-  // The focused card: tap the person for details, or a spouse's circle to move to them.
+  // The focused card: tap the person for details, or a spouse's name to flip over to them.
   return (
     <div data-focused className={look}>
       <button
@@ -429,24 +493,23 @@ function PersonCard({
       >
         {body}
       </button>
-      {spouses && spouses.length > 0 && (
-        // Sitting on the bottom edge, where the line down to the children starts.
-        <div className="absolute inset-x-0 -bottom-3.5 flex justify-center gap-1">
-          {spouses.map((spouse) => (
-            <button
-              key={spouse.id}
-              type="button"
-              data-person-id={spouse.id}
-              onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
-              aria-label={`Go to ${spouse.name}${spouse.title ? ` (${spouse.title})` : ""}`}
-              title={[spouse.name, spouse.title].filter(Boolean).join(" · ")}
-              className="cursor-pointer rounded-full shadow-sm ring-2 ring-card outline-offset-2 hover:ring-leaf active:scale-95"
-            >
-              <Avatar person={spouse} size={28} />
-            </button>
-          ))}
-        </div>
-      )}
+      {spouses?.map((spouse) => (
+        // Just the name, in a small pill with an arrow so it reads as something to tap.
+        <button
+          key={spouse.id}
+          type="button"
+          data-person-id={spouse.id}
+          onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
+          aria-label={`Go to ${spouse.name}${spouse.title ? ` (${spouse.title})` : ""}`}
+          title={[spouse.name, spouse.title].filter(Boolean).join(" · ")}
+          className="mt-1.5 flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] leading-tight font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
+        >
+          <span className="truncate">{spouse.name}</span>
+          <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
+            ›
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
