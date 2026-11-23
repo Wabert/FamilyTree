@@ -86,8 +86,8 @@ export function useShowRelations(): boolean {
 
 /**
  * In Tree mode: the whole drawn tree, or Focus (one person with their
- * grandparents, parents, siblings, spouse and children). Focus starts as the
- * default on phones and whole tree on bigger screens, until the viewer picks.
+ * parents, siblings, spouse and children). Whole tree is the default on every
+ * screen until the viewer picks Focus.
  */
 export type TreeStyle = "whole" | "focus";
 const TREE_STYLE_KEY = "family-reunion:tree-style";
@@ -102,12 +102,7 @@ function getTreeStyle(): TreeStyle {
     } catch {
       // Storage blocked: fall back to the screen-size default.
     }
-    treeStyle =
-      saved === "whole" || saved === "focus"
-        ? saved
-        : window.matchMedia("(max-width: 767px)").matches
-          ? "focus"
-          : "whole";
+    treeStyle = saved === "focus" ? "focus" : "whole";
   }
   return treeStyle;
 }
