@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { buildIndex } from "@/lib/graph";
 import { relationship, type Relationship } from "@/lib/relationship";
 import { leaveFamily, signOut, type SessionState } from "@/lib/session";
@@ -77,9 +77,8 @@ export function FamilyApp({ session }: { session: SessionState }) {
     )[0];
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
-  // Move Focus view to someone. Done as a transition, which is what lets the
-  // cards glide to their new places.
-  const goToInFocus = (id: string) => startTransition(() => setSelectedId(id));
+  // Move Focus view to someone. (Focus view slides them into the middle itself.)
+  const goToInFocus = (id: string) => setSelectedId(id);
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],

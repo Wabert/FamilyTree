@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, ViewTransition } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { oldestFirst, siblingsOf, type FamilyIndex } from "@/lib/graph";
 import { marriageState, marriageYears, orderSpouses, spouseTitle } from "@/lib/marriage";
@@ -11,11 +11,8 @@ import { Avatar, lifespan } from "./Avatar";
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** What the family calls them: their nickname, or else their first name. */
 export const firstName = (person: Person | undefined) => person?.nickname || person?.name.split(/\s+/)[0] || "";
-/**
- * One name per person for the browser's view transitions: when the focus moves,
- * a person's card glides from where it was to where it is now.
- */
-const glideName = (id: string) => `person-${id.replace(/[^\w-]/g, "_")}`;
+/** How long the view takes to slide a tapped card into the middle. */
+const SLIDE_MS = 450;
 
 /**
  * One person at a time: their parents, spouse, siblings and
@@ -45,11 +42,50 @@ export function FocusView({
   // view; swiping along the siblings keeps the page where it is. (A layout
   // effect, so the page is already in place when the cards start to glide.)
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const swipedTo = useRef<string | null>(null);
+  // Where the card you tapped was on screen, so the view can slide it from there
+  // into the middle, the way a sibling slides along their row.
+  const tappedFrom = useRef<{ id: string; left: number; top: number } | null>(null);
+  const slide = useRef<Animation | null>(null);
+  const firstRender = useRef(true);
   useLayoutEffect(() => {
-    if (swipedTo.current !== centerId) scroller.current?.scrollTo({ top: 0 });
+    const swiped = swipedTo.current === centerId;
     swipedTo.current = null;
+    const from = tappedFrom.current?.id === centerId ? tappedFrom.current : null;
+    tappedFrom.current = null;
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    if (swiped) return;
+    scroller.current?.scrollTo({ top: 0 });
+
+    const box = content.current;
+    slide.current?.cancel();
+    if (!box || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const card = box.querySelector<HTMLElement>("[data-focused]")?.getBoundingClientRect();
+    if (from && card) {
+      // Everything moves together: the tapped card starts where your finger was
+      // and lands in the middle, with its family coming along around it.
+      const dx = from.left - (card.left + card.width / 2);
+      const dy = from.top - card.top;
+      slide.current = box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+        duration: SLIDE_MS,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+      });
+    } else {
+      // Moved from somewhere else (search, the quick card): a soft fade instead.
+      slide.current = box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+    }
   }, [centerId]);
+
+  // Tapping a card (or a spouse's name): note where it is, then move to them.
+  const goFrom = (id: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    tappedFrom.current = { id, left: rect.left + rect.width / 2, top: rect.top };
+    onCenter(id);
+  };
 
   const center = index.byId.get(centerId);
   if (!center) return null;
@@ -81,23 +117,19 @@ export function FocusView({
     .flatMap(([, kids]) => kids);
 
   const card = (id: string, note?: string) => (
-    <ViewTransition key={id} name={glideName(id)}>
-      <PersonCard
-        person={index.byId.get(id)!}
-        relation={relations?.get(id)}
-        note={note}
-        isMe={id === meId}
-        onClick={() => onCenter(id)}
-      />
-    </ViewTransition>
+    <PersonCard
+      key={id}
+      person={index.byId.get(id)!}
+      relation={relations?.get(id)}
+      note={note}
+      isMe={id === meId}
+      onClick={(el) => goFrom(id, el)}
+    />
   );
-  // A spouse's name glides too (into their card, when you move to them), unless
-  // they already have a card on screen: a name can only belong to one thing.
-  const hasCard = new Set([...parents, ...brood, ...children]);
 
   return (
-    <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-32 pb-10">
-      <div className="mx-auto flex max-w-3xl flex-col items-center px-2">
+    <div ref={scroller} className="absolute inset-0 overflow-x-hidden overflow-y-auto pt-32 pb-10">
+      <div ref={content} className="mx-auto flex max-w-3xl flex-col items-center px-2">
         {parents.length > 0 && (
           <>
             <Parents>{parents.map((id) => card(id))}</Parents>
@@ -109,29 +141,26 @@ export function FocusView({
           ids={brood}
           centerId={centerId}
           renderCard={(id, focused) => (
-            <ViewTransition name={glideName(id)}>
-              <PersonCard
-                person={index.byId.get(id)!}
-                relation={relations?.get(id)}
-                note={!focused && isHalf(id) ? "Half-sibling" : undefined}
-                isMe={id === meId}
-                focused={focused}
-                spouses={
-                  focused
-                    ? spouses.map((s) => ({
-                        id: s,
-                        name: index.byId.get(s)?.name ?? "",
-                        title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
-                          .filter(Boolean)
-                          .join(" · "),
-                        glides: !hasCard.has(s),
-                      }))
-                    : undefined
-                }
-                onSpouse={onCenter}
-                onClick={() => (focused ? onDetails(id) : undefined)}
-              />
-            </ViewTransition>
+            <PersonCard
+              person={index.byId.get(id)!}
+              relation={relations?.get(id)}
+              note={!focused && isHalf(id) ? "Half-sibling" : undefined}
+              isMe={id === meId}
+              focused={focused}
+              spouses={
+                focused
+                  ? spouses.map((s) => ({
+                      id: s,
+                      name: index.byId.get(s)?.name ?? "",
+                      title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
+                        .filter(Boolean)
+                        .join(" · "),
+                    }))
+                  : undefined
+              }
+              onSpouse={goFrom}
+              onClick={() => (focused ? onDetails(id) : undefined)}
+            />
           )}
           onSettle={(id) => {
             swipedTo.current = id;
@@ -296,9 +325,10 @@ function PersonCard({
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
   /** Shown inside the focused card, e.g. "Wife · m. 2004: Linda Hartley". */
-  spouses?: { id: string; name: string; title: string; glides: boolean }[];
-  onSpouse?(id: string): void;
-  onClick(): void;
+  spouses?: { id: string; name: string; title: string }[];
+  onSpouse?(id: string, el: HTMLElement): void;
+  /** Given the card's element, so the view can slide from where it was. */
+  onClick(el: HTMLElement): void;
 }) {
   const years = lifespan(person);
   const dead = person.deathYear !== undefined;
@@ -333,7 +363,10 @@ function PersonCard({
 
   if (!focused) {
     return (
-      <button type="button" onClick={onClick} className={`${look} cursor-pointer transition-shadow hover:shadow-md`}>
+      <button
+        type="button"
+        onClick={(e) => onClick(e.currentTarget)}
+        className={`${look} cursor-pointer transition-shadow hover:shadow-md`}>
         {body}
       </button>
     );
@@ -343,7 +376,7 @@ function PersonCard({
     <div data-focused className={look}>
       <button
         type="button"
-        onClick={onClick}
+        onClick={(e) => onClick(e.currentTarget)}
         aria-label={`${person.name}, shown in the middle. Open details`}
         className="flex w-full cursor-pointer flex-col items-center"
       >
@@ -354,10 +387,9 @@ function PersonCard({
           {spouses.map((spouse) => (
             <div key={spouse.id} className="flex flex-col items-center leading-tight">
               {/* A small pill with an arrow, so it reads as something to tap. */}
-              <ViewTransition name={spouse.glides ? glideName(spouse.id) : undefined}>
-                <button
+              <button
                   type="button"
-                  onClick={() => onSpouse?.(spouse.id)}
+                  onClick={(e) => onSpouse?.(spouse.id, e.currentTarget)}
                   aria-label={`Go to ${spouse.name}`}
                   className="flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
                 >
@@ -366,7 +398,6 @@ function PersonCard({
                     ›
                   </span>
                 </button>
-              </ViewTransition>
               <span className="mt-0.5 block max-w-full truncate text-[9px] text-muted">{spouse.title}</span>
             </div>
           ))}

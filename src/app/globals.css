@@ -55,17 +55,3 @@ body {
   background: var(--color-ink);
   transform: scale(1.15);
 }
-
-/* Focus view: cards glide to their new places when you move to someone.
-   Taps during the glide still reach the page. */
-::view-transition {
-  pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(*),
-  ::view-transition-new(*),
-  ::view-transition-group(*) {
-    animation-duration: 0s !important;
-    animation-delay: 0s !important;
-  }
-}
