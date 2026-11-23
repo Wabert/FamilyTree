@@ -247,6 +247,7 @@ export function FocusView({
                   ? spouses.map((s) => ({
                       id: s,
                       name: index.byId.get(s)?.name ?? "",
+                      first: firstName(index.byId.get(s)),
                       title: [cap(spouseTitle(index, centerId, s)), marriageYears(marriageState(index, centerId, s))]
                         .filter(Boolean)
                         .join(" · "),
@@ -439,7 +440,7 @@ function PersonCard({
   /** The person the view is centered on: same size, green background. */
   focused?: boolean;
   /** Names at the bottom of the focused card, e.g. Linda Hartley ("Wife · m. 2004" when held). */
-  spouses?: { id: string; name: string; title: string }[];
+  spouses?: { id: string; name: string; first: string; title: string }[];
   onSpouse?(id: string, el: HTMLElement): void;
   /** Given the card's element, so the view can slide from where it was. */
   onClick(el: HTMLElement): void;
@@ -494,7 +495,8 @@ function PersonCard({
         {body}
       </button>
       {spouses?.map((spouse) => (
-        // Just the name, in a small pill with an arrow so it reads as something to tap.
+        // Just their first name (the full name shows when held), in a small pill
+        // with an arrow so it reads as something to tap.
         <button
           key={spouse.id}
           type="button"
@@ -504,7 +506,7 @@ function PersonCard({
           title={[spouse.name, spouse.title].filter(Boolean).join(" · ")}
           className="mt-1.5 flex max-w-full cursor-pointer items-center gap-0.5 rounded-full border border-leaf/40 bg-card py-0.5 pr-1.5 pl-2 text-[11px] leading-tight font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft"
         >
-          <span className="truncate">{spouse.name}</span>
+          <span className="truncate">{spouse.first}</span>
           <span aria-hidden className="text-[13px] leading-none text-leaf-dark">
             ›
           </span>

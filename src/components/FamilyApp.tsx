@@ -77,41 +77,56 @@ export function FamilyApp({ session }: { session: SessionState }) {
     )[0];
     return oldest?.id ?? null;
   }, [selectedId, me, family, index]);
-  // People visited in Focus view, for its back and forward buttons.
-  const [focusBackList, setFocusBackList] = useState<string[]>([]);
-  const [focusAheadList, setFocusAheadList] = useState<string[]>([]);
+  // The people you've been on, in Whole tree or Focus alike, for the back and
+  // forward buttons: switching between the two keeps your place in the trail.
+  const [backList, setBackList] = useState<string[]>([]);
+  const [aheadList, setAheadList] = useState<string[]>([]);
   const focusRef = useRef<FocusViewHandle>(null);
+  // Who you're on in the whole tree, even after closing their card.
+  const lastPicked = useRef<string | null>(null);
+  const currentPerson = () => (focusMode ? focusCenter : (selectedId ?? lastPicked.current));
   // Swiping along a row of siblings is one step back, not one per sibling.
   const swiping = useRef(false);
-  // Move Focus view to someone, remembering who you were on.
-  const goToInFocus = (id: string, swiped = false) => {
-    if (focusCenter && id !== focusCenter && !(swiped && swiping.current)) {
-      setFocusBackList((h) => [...h, focusCenter].slice(-50));
-      setFocusAheadList([]);
+  // Moving to someone: remember who you were on, for Back.
+  const remember = (id: string, swiped = false) => {
+    const from = currentPerson();
+    if (from && id !== from && !(swiped && swiping.current)) {
+      setBackList((h) => [...h, from].slice(-50));
+      setAheadList([]);
     }
     swiping.current = swiped;
+    lastPicked.current = id;
+  };
+  const goToInFocus = (id: string, swiped = false) => {
+    remember(id, swiped);
     if (!swiped) focusRef.current?.slideFrom(id);
     setSelectedId(id);
   };
-  // Like a browser: back to who you saw before, forward again after going back.
+  // Like a browser: back to who you were on before, forward again after going back.
   const visible = (ids: string[]) => ids.filter((id) => index.byId.has(id));
-  const focusBack = () => {
-    const previous = visible(focusBackList).at(-1);
-    if (!previous) return;
-    setFocusBackList((h) => h.slice(0, h.lastIndexOf(previous)));
-    if (focusCenter) setFocusAheadList((f) => [...f, focusCenter]);
+  const stepTo = (id: string) => {
     swiping.current = false;
-    focusRef.current?.slideFrom(previous);
-    setSelectedId(previous);
+    lastPicked.current = id;
+    if (focusMode) {
+      focusRef.current?.slideFrom(id);
+      setSelectedId(id);
+    } else focusPerson(id);
   };
-  const focusAhead = () => {
-    const next = visible(focusAheadList).at(-1);
+  const goBack = () => {
+    const previous = visible(backList).at(-1);
+    if (!previous) return;
+    const here = currentPerson();
+    setBackList((h) => h.slice(0, h.lastIndexOf(previous)));
+    if (here) setAheadList((f) => [...f, here]);
+    stepTo(previous);
+  };
+  const goAhead = () => {
+    const next = visible(aheadList).at(-1);
     if (!next) return;
-    setFocusAheadList((f) => f.slice(0, f.lastIndexOf(next)));
-    if (focusCenter) setFocusBackList((h) => [...h, focusCenter]);
-    swiping.current = false;
-    focusRef.current?.slideFrom(next);
-    setSelectedId(next);
+    const here = currentPerson();
+    setAheadList((f) => f.slice(0, f.lastIndexOf(next)));
+    if (here) setBackList((h) => [...h, here]);
+    stepTo(next);
   };
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
@@ -171,6 +186,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
   // Jumping to someone by name (search, or a relative in the quick card): also
   // scrolls the list to them, when that is the view showing.
   const jumpTo = (id: string) => {
+    remember(id);
     setFocusTick((n) => n + 1);
     focusPerson(id);
   };
@@ -183,6 +199,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
 
   // Tapping a card on a phone would otherwise hide it behind the bottom sheet.
   const selectFromTree = (id: string) => {
+    remember(id);
     if (window.matchMedia("(max-width: 767px)").matches) focusPerson(id);
     else setSelectedId(id);
   };
@@ -570,28 +587,26 @@ export function FamilyApp({ session }: { session: SessionState }) {
                   </button>
                 ))}
               </div>
-              {focusMode && (
-                <div className="pointer-events-auto flex gap-1">
-                  {(
-                    [
-                      ["Back to the previous person", "‹", visible(focusBackList).length > 0],
-                      ["Forward again", "›", visible(focusAheadList).length > 0],
-                    ] as const
-                  ).map(([label, arrow, enabled]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => (arrow === "‹" ? focusBack() : focusAhead())}
-                      disabled={!enabled}
-                      aria-label={label}
-                      title={label}
-                      className="flex h-[1.625rem] w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-card pb-0.5 text-lg leading-none font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft disabled:cursor-default disabled:opacity-35 disabled:hover:border-line disabled:active:bg-card"
-                    >
-                      {arrow}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="pointer-events-auto flex gap-1">
+                {(
+                  [
+                    ["Back to the previous person", "‹", visible(backList).length > 0],
+                    ["Forward again", "›", visible(aheadList).length > 0],
+                  ] as const
+                ).map(([label, arrow, enabled]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => (arrow === "‹" ? goBack() : goAhead())}
+                    disabled={!enabled}
+                    aria-label={label}
+                    title={label}
+                    className="flex h-[1.625rem] w-8 cursor-pointer items-center justify-center rounded-full border border-line bg-card pb-0.5 text-lg leading-none font-medium text-ink shadow-sm hover:border-leaf active:bg-leaf-soft disabled:cursor-default disabled:opacity-35 disabled:hover:border-line disabled:active:bg-card"
+                  >
+                    {arrow}
+                  </button>
+                ))}
+              </div>
               </div>
             )}
             {!me && showRelations && !selected && viewMode !== "map" && !focusMode && (
@@ -631,6 +646,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
           canEdit={canEdit}
           onClose={() => setDetailsId(null)}
           onSelect={(id) => {
+            if (viewMode === "tree") remember(id);
             setDetailsId(id);
             focusPerson(id);
           }}
