@@ -25,6 +25,7 @@ import { SearchBox } from "./SearchBox";
 import { PersonForm, type FormMode } from "./PersonForm";
 import { PersonDetails } from "./PersonDetails";
 import { PersonPanel } from "./PersonPanel";
+import { QuizDialog } from "./QuizDialog";
 import { TreeView, type TreeViewHandle } from "./TreeView";
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -56,6 +57,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const [showMembers, setShowMembers] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showKeepAccess, setShowKeepAccess] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const viewMode = useViewMode();
   const treeStyle = useTreeStyle();
@@ -261,6 +263,16 @@ export function FamilyApp({ session }: { session: SessionState }) {
               className="cursor-pointer rounded-full border border-line bg-white px-4 py-1 text-sm font-semibold text-ink hover:border-leaf"
             >
               Invite
+            </button>
+          )}
+          {/* Four people is the fewest a four-choice question can be made from. */}
+          {family.people.length >= 4 && (
+            <button
+              type="button"
+              onClick={() => setShowQuiz(true)}
+              className="cursor-pointer rounded-full border border-line bg-white px-4 py-1 text-sm font-semibold text-ink hover:border-leaf"
+            >
+              Quiz
             </button>
           )}
           <button
@@ -629,6 +641,19 @@ export function FamilyApp({ session }: { session: SessionState }) {
       {showHistory && shared && session.canCreate && <ChangeHistoryDialog onClose={() => setShowHistory(false)} />}
 
       {showKeepAccess && <KeepAccessDialog onClose={() => setShowKeepAccess(false)} />}
+
+      {showQuiz && (
+        <QuizDialog
+          index={index}
+          meId={me}
+          onClose={() => setShowQuiz(false)}
+          onShowPerson={(id) => {
+            setShowQuiz(false);
+            if (focusMode) goToInFocus(id);
+            else jumpTo(id);
+          }}
+        />
+      )}
 
       {invite && inviteCode && (
         <InviteDialog
