@@ -19,7 +19,7 @@ const byAge = (index: FamilyIndex) => {
 };
 
 /**
- * One person at a time: their grandparents, parents, spouse, siblings and
+ * One person at a time: their parents, spouse, siblings and
  * children around them. Tap anyone to move to them. Made for phones, where the
  * whole tree is too big to find your way around.
  */
@@ -42,7 +42,7 @@ export function FocusView({
   /** Tapping the focused (green) person opens their details. */
   onDetails(id: string): void;
 }) {
-  // Moving to someone by tapping starts at the top, with their grandparents in
+  // Moving to someone by tapping starts at the top, with their parents in
   // view; swiping along the siblings keeps the page where it is.
   const scroller = useRef<HTMLDivElement>(null);
   const swipedTo = useRef<string | null>(null);
@@ -60,9 +60,6 @@ export function FocusView({
   const stepParents = parents
     .flatMap((p) => index.spousesOf(p))
     .filter((s, i, all) => !parents.includes(s) && all.indexOf(s) === i);
-  const grandparentGroups = parents
-    .map((p) => ({ parent: p, grandparents: [...index.parentsOf(p)].sort(age) }))
-    .filter((group) => group.grandparents.length);
   const spouses = orderSpouses(index, centerId, index.spousesOf(centerId)).reverse();
   const siblings = siblingsOf(index, centerId).sort(age);
   // The person and their siblings, oldest to youngest: the row that swipes.
@@ -99,16 +96,6 @@ export function FocusView({
   return (
     <div ref={scroller} className="absolute inset-0 overflow-y-auto pt-32 pb-10">
       <div className="mx-auto flex max-w-3xl flex-col items-stretch gap-1 px-2">
-        {grandparentGroups.length > 0 && (
-          <Section title="Grandparents">
-            {grandparentGroups.map(({ parent, grandparents }) => (
-              <Family key={parent} caption={`${firstName(index.byId.get(parent))}’s parents`}>
-                {grandparents.map((id) => card(id))}
-              </Family>
-            ))}
-          </Section>
-        )}
-
         {parents.length > 0 && (
           <Section title="Parents">
             <Family>{parents.map((id) => card(id))}</Family>
