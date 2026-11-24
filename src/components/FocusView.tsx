@@ -18,28 +18,39 @@ export const firstName = (person: Person | undefined) => person?.nickname || per
 const SLIDE_MS = 700;
 /** How long the card takes to flip over to a spouse. */
 const FLIP_MS = 560;
-/** How long a spouse's card takes to show beside the focused person and tuck into their name. */
+/** How long a spouse's card takes to shrink into the focused person's name pill. */
 const TUCK_MS = 650;
 
 /**
- * Where each spouse's stand-in card starts (just right of the focused card, as a
- * couple would stand) and where it ends: shrunk onto their name pill. Measured
- * in the content box, so it rides along with the slide.
+ * For each spouse of the new focus whose card was on screen before the move:
+ * a stand-in card that starts where theirs was, rides along with the slide,
+ * then shrinks onto their name pill. Spouses who weren't showing get no
+ * animation; their pill is simply there. Measured in the content box, before
+ * anything moves; `shift` is where the slide starts the content box from.
  */
-function planSpouseTuck(box: HTMLElement, focused: HTMLElement, card: DOMRect, row: DOMRect) {
+function planSpouseTuck(
+  box: HTMLElement,
+  focused: HTMLElement,
+  card: DOMRect,
+  row: DOMRect,
+  seen: Map<string, DOMRect>,
+  shift: { x: number; y: number },
+) {
   const area = box.getBoundingClientRect();
   // Where the focused card comes to rest: the middle of its row.
-  const left = row.left + row.width / 2 - card.width / 2 - area.left;
-  const top = card.top - area.top;
-  return [...focused.querySelectorAll<HTMLElement>("[data-person-id]")].flatMap((pill, i) => {
-    const ghost = box.querySelector<HTMLElement>(`[data-spouse-ghost="${CSS.escape(pill.dataset.personId ?? "")}"]`);
-    if (!ghost) return [];
-    const startX = left + (card.width + 8) * (i + 1);
-    Object.assign(ghost.style, { left: `${startX}px`, top: `${top}px` });
+  const cardLeft = row.left + row.width / 2 - card.width / 2 - area.left;
+  return [...focused.querySelectorAll<HTMLElement>("[data-person-id]")].flatMap((pill) => {
+    const id = pill.dataset.personId ?? "";
+    const was = seen.get(id);
+    const ghost = box.querySelector<HTMLElement>(`[data-spouse-ghost="${CSS.escape(id)}"]`);
+    if (!was || !ghost) return [];
+    const startX = was.left - area.left - shift.x;
+    const startY = was.top - area.top - shift.y;
+    Object.assign(ghost.style, { left: `${startX}px`, top: `${startY}px` });
     const size = ghost.getBoundingClientRect();
     const target = pill.getBoundingClientRect();
-    const dx = left + target.left - card.left - startX;
-    const dy = target.top - card.top;
+    const dx = cardLeft + target.left - card.left - startX;
+    const dy = target.top - area.top - startY;
     const end = `translate(${dx}px, ${dy}px) scale(${target.width / size.width}, ${target.height / size.height})`;
     return [{ ghost, pill, end }];
   });
@@ -87,6 +98,9 @@ export function FocusView({
   const tappedFrom = useRef<{ id: string; left: number; top: number } | null>(null);
   // Going back or forward to a sibling: their row glides them into the middle.
   const glideRowTo = useRef<string | null>(null);
+  // Where everyone's card was just before a move, so a spouse who was showing
+  // can be seen tucking into the new focus's name pill.
+  const seenBefore = useRef<{ id: string; cards: Map<string, DOMRect> } | null>(null);
   // Moving to a spouse: a copy of the card as it was, to flip over to them.
   const flipFrom = useRef<{ id: string; card: HTMLElement } | null>(null);
   const motion = useRef<Animation[]>([]);
@@ -100,6 +114,9 @@ export function FocusView({
     tappedFrom.current = null;
     const flip = flipFrom.current?.id === centerId ? flipFrom.current : null;
     flipFrom.current = null;
+    // After a flip the card turning over already shows where they went.
+    const seen = !flip && seenBefore.current?.id === centerId ? seenBefore.current.cards : null;
+    seenBefore.current = null;
     if (firstRender.current) {
       firstRender.current = false;
       return;
@@ -118,8 +135,10 @@ export function FocusView({
     const focused = box.querySelector<HTMLElement>("[data-focused]");
     const card = focused?.getBoundingClientRect();
     const row = box.querySelector<HTMLElement>("[data-carousel]")?.getBoundingClientRect();
+    const slideBy =
+      from && card && row ? { x: from.left - (row.left + row.width / 2), y: from.top - card.top } : { x: 0, y: 0 };
     // Measured now, before anything starts moving.
-    const tuck = focused && card && row ? planSpouseTuck(box, focused, card, row) : [];
+    const tuck = seen && focused && card && row ? planSpouseTuck(box, focused, card, row, seen, slideBy) : [];
     if (flip && focused && card) {
       // The card turns over, like the other side of the same card: the old one
       // turns away, the spouse's turns into view, in the same spot. Their
@@ -158,10 +177,8 @@ export function FocusView({
       // Everything moves together: the tapped card starts where your finger was
       // and lands in the middle of its row (where the row snaps it, even if the
       // row hasn't finished settling yet), with its family coming along around it.
-      const dx = from.left - (row.left + row.width / 2);
-      const dy = from.top - card.top;
       motion.current.push(
-        box.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+        box.animate([{ transform: `translate(${slideBy.x}px, ${slideBy.y}px)` }, { transform: "none" }], {
           duration: SLIDE_MS,
           // Eases in and out like a scroll, rather than darting most of the way at once.
           easing: "cubic-bezier(0.45, 0, 0.2, 1)",
@@ -171,19 +188,20 @@ export function FocusView({
       // Moved from somewhere else (search, the quick card): a soft fade instead.
       motion.current.push(box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" }));
     }
-    // Once they're nearly in place, their spouse's card shows beside them and
-    // tucks itself away into the name on their card.
-    const settled = flip ? FLIP_MS : from ? SLIDE_MS * 0.55 : 150;
+    // A spouse who was showing stays put (riding along with the slide), then,
+    // once the focused person is nearly in place, shrinks into their name pill.
+    const settled = from ? SLIDE_MS * 0.55 : 100;
+    const total = settled + TUCK_MS;
     for (const { ghost, pill, end } of tuck) {
       motion.current.push(
         ghost.animate(
           [
-            { opacity: 0, transform: "none" },
-            { opacity: 1, transform: "none", offset: 0.25 },
-            { opacity: 1, offset: 0.7 },
+            { opacity: 1, transform: "none" },
+            { opacity: 1, transform: "none", offset: settled / total, easing: "ease-in-out" },
+            { opacity: 1, offset: (settled + TUCK_MS * 0.6) / total },
             { opacity: 0, transform: end },
           ],
-          { duration: TUCK_MS, delay: settled, easing: "ease-in-out" },
+          { duration: total },
         ),
         pill.animate([{ opacity: 0, transform: "scale(0.6)" }, { opacity: 1, transform: "none" }], {
           duration: 220,
@@ -210,8 +228,22 @@ export function FocusView({
     copy.setAttribute("aria-hidden", "true");
     flipFrom.current = { id, card: copy };
   };
+  const noteSeen = (id: string) => {
+    const box = content.current;
+    if (!box) return;
+    const cards = new Map<string, DOMRect>();
+    for (const el of box.querySelectorAll<HTMLElement>("[data-person-id]")) {
+      // Cards only: not a spouse's name pill, nor the hidden stand-ins.
+      if (el.closest("[data-focused], [data-spouse-ghost]")) continue;
+      cards.set(el.dataset.personId!, el.getBoundingClientRect());
+    }
+    const focused = box.querySelector<HTMLElement>("[data-focused]");
+    if (focused) cards.set(centerId, focused.getBoundingClientRect());
+    seenBefore.current = { id, cards };
+  };
   // Tapping a card: note where it is, then move to them.
   const goFrom = (id: string, el: HTMLElement) => {
+    noteSeen(id);
     noteFrom(id, el);
     onCenter(id);
   };
@@ -224,6 +256,7 @@ export function FocusView({
   // them in from where they are, just as if they'd been tapped.
   useImperativeHandle(ref, () => ({
     slideFrom(id: string) {
+      if (id !== centerId) noteSeen(id);
       if (tappedFrom.current?.id === id || flipFrom.current?.id === id || id === centerId) return;
       const el = content.current?.querySelector<HTMLElement>(`[data-person-id="${CSS.escape(id)}"]`);
       if (!el) return;
@@ -327,8 +360,9 @@ export function FocusView({
           </p>
         )}
 
-        {/* Stand-ins for the spouse's card, invisible until the focus moves:
-            then they show beside the focused card and tuck into its name pill. */}
+        {/* Stand-ins for the spouse's card, invisible until the focus moves to
+            someone whose spouse was showing: then one starts where that card
+            was and tucks into the name pill. */}
         {spouses.map((id) => (
           <div
             key={id}
