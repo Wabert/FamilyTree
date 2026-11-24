@@ -19,12 +19,12 @@ const SLIDE_MS = 700;
 /** How long the card takes to flip over to a spouse. */
 const FLIP_MS = 560;
 /** How long a spouse's card takes to shrink into the focused person's name pill. */
-const TUCK_MS = 650;
+const TUCK_MS = 450;
 
 /**
  * For each spouse of the new focus whose card was on screen before the move:
- * a stand-in card that starts where theirs was, rides along with the slide,
- * then shrinks onto their name pill. Spouses who weren't showing get no
+ * a stand-in card that starts where theirs was and shrinks onto their name
+ * pill, before the slide to the middle starts. Spouses who weren't showing get no
  * animation; their pill is simply there. Measured in the content box, before
  * anything moves; `shift` is where the slide starts the content box from.
  */
@@ -177,35 +177,44 @@ export function FocusView({
       // Everything moves together: the tapped card starts where your finger was
       // and lands in the middle of its row (where the row snaps it, even if the
       // row hasn't finished settling yet), with its family coming along around it.
+      // If their spouse was showing, that card first tucks into their name, with
+      // everything held where it was, and only then does the slide start.
+      const hold = tuck.length ? TUCK_MS : 0;
+      const start = `translate(${slideBy.x}px, ${slideBy.y}px)`;
       motion.current.push(
-        box.animate([{ transform: `translate(${slideBy.x}px, ${slideBy.y}px)` }, { transform: "none" }], {
-          duration: SLIDE_MS,
-          // Eases in and out like a scroll, rather than darting most of the way at once.
-          easing: "cubic-bezier(0.45, 0, 0.2, 1)",
-        }),
+        box.animate(
+          [
+            { transform: start },
+            {
+              transform: start,
+              offset: hold / (hold + SLIDE_MS),
+              // Eases in and out like a scroll, rather than darting most of the way at once.
+              easing: "cubic-bezier(0.45, 0, 0.2, 1)",
+            },
+            { transform: "none" },
+          ],
+          { duration: hold + SLIDE_MS },
+        ),
       );
     } else {
       // Moved from somewhere else (search, the quick card): a soft fade instead.
       motion.current.push(box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" }));
     }
-    // A spouse who was showing stays put (riding along with the slide), then,
-    // once the focused person is nearly in place, shrinks into their name pill.
-    const settled = from ? SLIDE_MS * 0.55 : 100;
-    const total = settled + TUCK_MS;
+    // A spouse who was showing shrinks into the name pill on the card you
+    // picked, from where their card was, before anything else moves.
     for (const { ghost, pill, end } of tuck) {
       motion.current.push(
         ghost.animate(
           [
             { opacity: 1, transform: "none" },
-            { opacity: 1, transform: "none", offset: settled / total, easing: "ease-in-out" },
-            { opacity: 1, offset: (settled + TUCK_MS * 0.6) / total },
+            { opacity: 1, offset: 0.6 },
             { opacity: 0, transform: end },
           ],
-          { duration: total },
+          { duration: TUCK_MS, easing: "ease-in-out" },
         ),
         pill.animate([{ opacity: 0, transform: "scale(0.6)" }, { opacity: 1, transform: "none" }], {
-          duration: 220,
-          delay: settled + TUCK_MS * 0.7,
+          duration: 200,
+          delay: TUCK_MS * 0.65,
           easing: "ease-out",
           fill: "backwards",
         }),
