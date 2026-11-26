@@ -13,8 +13,12 @@ export interface TreeViewHandle {
    * hide, in pixels. It is asked again whenever the tree area changes size (a
    * phone's keyboard closing, the screen turning), so the person stays centred
    * until the viewer moves the tree themselves.
+   *
+   * With `whole`, the whole tree is fitted into view instead when it can be
+   * shown at a readable size, with `id` kept on screen when it can't: used for a
+   * branch, which is small enough that seeing all of it is the point.
    */
-  centerOn(id: string, covered?: () => Covered): void;
+  centerOn(id: string, covered?: () => Covered, whole?: boolean): void;
 }
 
 interface Covered {
@@ -32,6 +36,8 @@ interface View {
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 1.6;
 const FOCUS_ZOOM = 0.7;
+/** The smallest a fitted branch is shown; below this the names are hard to read. */
+const BRANCH_ZOOM = 0.45;
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 
 function zoomAbout(view: View, px: number, py: number, nextK: number): View {
@@ -75,7 +81,7 @@ export function TreeView({
   const dragged = useRef(false);
 
   /** The person the tree was last asked to centre on, until the viewer moves it. */
-  const focus = useRef<{ id: string; covered?: () => Covered } | null>(null);
+  const focus = useRef<{ id: string; covered?: () => Covered; whole?: boolean } | null>(null);
 
   // Switching between regular and compact cards redraws the whole tree, so fit
   // it to the screen again. (Runs before the fitting effect below.)
@@ -92,11 +98,33 @@ export function TreeView({
     const rect = el.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const covered = target.covered?.() ?? {};
-    const top = covered.top ?? 0;
+    // A fitted tree also clears the second row of buttons (Whole tree, Branch…).
+    const top = Math.max(covered.top ?? 0, target.whole ? topInset : 0);
     const width = rect.width - (covered.right ?? 0);
     const height = rect.height - top - (covered.bottom ?? 0);
     userMoved.current = true;
     setSmooth(true);
+    if (target.whole) {
+      const pad = 20;
+      const k = clamp(
+        Math.min((width - pad * 2) / layout.width, (height - pad * 2) / layout.height),
+        BRANCH_ZOOM,
+        1,
+      );
+      const personX = width / 2 - (node.x + layout.cardW / 2) * k;
+      const personY = top + height / 2 - (node.y + layout.cardH / 2) * k;
+      const fitsWide = layout.width * k <= width - pad * 2;
+      const fitsTall = layout.height * k <= height - pad * 2;
+      setView({
+        k,
+        x: fitsWide ? (width - layout.width * k) / 2 : personX,
+        // Too tall: keep the person in view, but never leave empty space above the top row.
+        y: fitsTall
+          ? top + (height - layout.height * k) / 2
+          : clamp(personY, top + height - pad - layout.height * k, top + pad),
+      });
+      return;
+    }
     setView((v) => {
       // Close enough to read the names, far enough to see who is around them.
       const k = Math.max(v?.k ?? 1, FOCUS_ZOOM);
@@ -106,7 +134,7 @@ export function TreeView({
         y: top + height / 2 - (node.y + layout.cardH / 2) * k,
       };
     });
-  }, [layout]);
+  }, [layout, topInset]);
 
   // Fit the whole tree on screen until the viewer starts moving it themselves.
   useEffect(() => {
@@ -173,8 +201,8 @@ export function TreeView({
   useImperativeHandle(
     ref,
     () => ({
-      centerOn(id, covered) {
-        focus.current = { id, covered };
+      centerOn(id, covered, whole) {
+        focus.current = { id, covered, whole };
         centerFocus();
       },
     }),

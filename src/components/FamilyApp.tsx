@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { buildIndex } from "@/lib/graph";
+import { branchOf, buildIndex, headOf, subFamily } from "@/lib/graph";
 import { relationship, type Relationship } from "@/lib/relationship";
 import { leaveFamily, signOut, type SessionState } from "@/lib/session";
 import {
@@ -34,6 +34,9 @@ const menuItem = "block w-full cursor-pointer px-4 py-2.5 text-left hover:bg-pap
 
 /** Room the two rows of buttons take up over the top of the tree, in pixels. */
 const TREE_BUTTONS_HEIGHT = 96;
+
+/** Part of the whole tree shown around one person; see `trim` below. */
+type TreeScope = "branch" | "top";
 
 export function FamilyApp({ session }: { session: SessionState }) {
   const { family, meId, mode, role, inviteCode, userId } = useAppState();
@@ -128,6 +131,26 @@ export function FamilyApp({ session }: { session: SessionState }) {
     if (here) setBackList((h) => [...h, here]);
     stepTo(next);
   };
+  // How much of the whole tree to show around one person:
+  //  - branch: the line from the oldest generation down to them, and their children
+  //  - top: them and their spouse at the head, and everyone descended from them
+  // Stays on that person until it's switched back to All, or until you go to
+  // someone who isn't showing.
+  const [trim, setTrim] = useState<{ scope: TreeScope; id: string } | null>(null);
+  const shown = useMemo(() => {
+    if (!trim || !index.byId.has(trim.id)) return null;
+    return trim.scope === "branch" ? branchOf(index, trim.id) : headOf(index, trim.id);
+  }, [trim, index]);
+  const scope: TreeScope | "all" = shown && trim ? trim.scope : "all";
+  const treeFamily = useMemo(() => (shown ? subFamily(family, shown) : family), [shown, family]);
+  const chooseScope = (next: TreeScope | "all") => {
+    if (next === scope) return;
+    const id = selectedId ?? lastPicked.current ?? trim?.id ?? focusCenter;
+    if (!id || !index.byId.has(id)) return;
+    setTrim(next === "all" ? null : { scope: next, id });
+    window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, next !== "all"), 60);
+  };
+
   const sortedPeople = useMemo(
     () => [...family.people].sort((a, b) => a.name.localeCompare(b.name)),
     [family],
@@ -178,9 +201,16 @@ export function FamilyApp({ session }: { session: SessionState }) {
       : { top, right: Math.max(0, area.right - panel.left) };
   };
 
+  // Going to someone who isn't showing in Branch or Top moves it to them.
+  const followInTrim = (id: string) => {
+    if (trim && shown && !shown.has(id)) setTrim({ scope: trim.scope, id });
+  };
+
   const focusPerson = (id: string) => {
+    followInTrim(id);
     setSelectedId(id);
-    window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays), 60);
+    const whole = !!shown;
+    window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, whole), 60);
   };
 
   // Jumping to someone by name (search, or a relative in the quick card): also
@@ -202,8 +232,10 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const leaveFocusForWholeTree = () => {
     const id = focusCenter;
     lastPicked.current = id;
+    if (id) followInTrim(id);
     setSelectedId(null);
-    if (id) window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays), 60);
+    const whole = !!shown;
+    if (id) window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, whole), 60);
   };
 
   // Tapping a card on a phone would otherwise hide it behind the bottom sheet.
@@ -523,7 +555,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
             ) : (
               <TreeView
                 ref={treeRef}
-                family={family}
+                family={treeFamily}
                 meId={me}
                 selectedId={selectedId}
                 relations={relations}
@@ -588,7 +620,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                       if (style === "whole" && treeStyle !== "whole") leaveFocusForWholeTree();
                     }}
                     className={[
-                      "cursor-pointer px-3 py-1 font-medium",
+                      "cursor-pointer px-2 py-1 font-medium sm:px-3",
                       treeStyle === style ? "bg-leaf text-white" : "text-ink hover:bg-paper",
                     ].join(" ")}
                   >
@@ -596,6 +628,35 @@ export function FamilyApp({ session }: { session: SessionState }) {
                   </button>
                 ))}
               </div>
+              {treeStyle === "whole" && (
+                <div
+                  role="group"
+                  aria-label="Which part of the tree to show"
+                  className="pointer-events-auto flex shrink-0 overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
+                >
+                  {(
+                    [
+                      ["all", "All", "Show everyone"],
+                      ["branch", "Branch", "Just the line down to the person you're on, and their children"],
+                      ["top", "Top", "The person you're on at the top, with everyone below them"],
+                    ] as const
+                  ).map(([value, label, hint]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={scope === value}
+                      onClick={() => chooseScope(value)}
+                      title={hint}
+                      className={[
+                        "cursor-pointer px-2 py-1 font-medium sm:px-3",
+                        scope === value ? "bg-leaf text-white" : "text-ink hover:bg-paper",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="pointer-events-auto flex gap-1">
                 {(
                   [

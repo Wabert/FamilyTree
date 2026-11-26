@@ -82,3 +82,43 @@ export function siblingsOf(index: FamilyIndex, id: string): string[] {
   }
   return result;
 }
+
+/**
+ * The line that leads down to `id`: every ancestor up to the oldest in the
+ * tree, `id` themselves, their spouses and their children. Aunts, uncles,
+ * cousins and the rest of the tree are left out.
+ */
+export function branchOf(index: FamilyIndex, id: string): Set<string> {
+  const keep = new Set<string>([id]);
+  const queue = [...index.parentsOf(id)];
+  while (queue.length) {
+    const next = queue.pop()!;
+    if (keep.has(next)) continue;
+    keep.add(next);
+    queue.push(...index.parentsOf(next));
+  }
+  for (const s of index.spousesOf(id)) keep.add(s);
+  for (const c of index.childrenOf(id)) keep.add(c);
+  return keep;
+}
+
+/** Just the given people, and only the links between them. */
+export function subFamily(family: Family, keep: Set<string>): Family {
+  return {
+    ...family,
+    people: family.people.filter((p) => keep.has(p.id)),
+    parentLinks: family.parentLinks.filter((l) => keep.has(l.parentId) && keep.has(l.childId)),
+    spouseLinks: family.spouseLinks.filter((l) => keep.has(l.aId) && keep.has(l.bId)),
+  };
+}
+
+/**
+ * `id` at the head of the tree: them and their spouses on top, and everyone
+ * descended from them below, with those descendants' spouses beside them.
+ */
+export function headOf(index: FamilyIndex, id: string): Set<string> {
+  const below = descendantsOf(index, id);
+  const keep = new Set<string>([id, ...below]);
+  for (const person of [id, ...below]) for (const s of index.spousesOf(person)) keep.add(s);
+  return keep;
+}
