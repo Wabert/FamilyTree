@@ -132,7 +132,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
     stepTo(next);
   };
   // How much of the whole tree to show around one person:
-  //  - branch: the line from the oldest generation down to them, and their children
+  //  - branch: the direct line from the couple at the top down to them
   //  - top: them and their spouse at the head, and everyone descended from them
   // Stays on that person until it's switched back to All, or until you go to
   // someone who isn't showing.
@@ -610,7 +610,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
                 {(
                   [
                     ["whole", "Whole tree", "Show everyone"],
-                    ["branch", "Branch", "Just the line down to the person you're on, and their children"],
+                    ["branch", "Branch", "Just the direct line from the top of the tree down to the person you're on"],
                     ["top", "Top", "The person you're on at the top, with everyone below them"],
                     ["focus", "Focus", "One person at a time, with their closest family around them"],
                   ] as const

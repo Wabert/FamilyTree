@@ -84,21 +84,42 @@ export function siblingsOf(index: FamilyIndex, id: string): string[] {
 }
 
 /**
- * The line that leads down to `id`: every ancestor up to the oldest in the
- * tree, `id` themselves, their spouses and their children. Aunts, uncles,
- * cousins and the rest of the tree are left out.
+ * The direct line down to `id`: one parent per generation, from the oldest in
+ * the tree down to `id`, with the couple at the very top. No other spouses,
+ * no children, no aunts, uncles or cousins. Where both parents have family
+ * above them, the line follows the one that goes back further.
  */
 export function branchOf(index: FamilyIndex, id: string): Set<string> {
+  // How many generations go back above someone (guarding against loops).
+  const above = new Map<string, number>();
+  const generationsAbove = (person: string, path = new Set<string>()): number => {
+    const known = above.get(person);
+    if (known !== undefined) return known;
+    if (path.has(person)) return 0;
+    path.add(person);
+    let most = 0;
+    for (const parent of index.parentsOf(person)) most = Math.max(most, generationsAbove(parent, path) + 1);
+    path.delete(person);
+    above.set(person, most);
+    return most;
+  };
+
   const keep = new Set<string>([id]);
-  const queue = [...index.parentsOf(id)];
-  while (queue.length) {
-    const next = queue.pop()!;
-    if (keep.has(next)) continue;
+  let current = id;
+  for (;;) {
+    const parents = index.parentsOf(current).filter((p) => !keep.has(p));
+    if (!parents.length) break;
+    const next = parents.reduce((best, p) => (generationsAbove(p) > generationsAbove(best) ? p : best));
+    if (generationsAbove(next) === 0) {
+      // The top of the line: both parents, as the couple everyone descends from.
+      for (const p of parents) if (generationsAbove(p) === 0) keep.add(p);
+      break;
+    }
     keep.add(next);
-    queue.push(...index.parentsOf(next));
+    current = next;
   }
-  for (const s of index.spousesOf(id)) keep.add(s);
-  for (const c of index.childrenOf(id)) keep.add(c);
+  // Someone with no parents in the tree is the top themselves: show their spouse.
+  if (keep.size === 1) for (const s of index.spousesOf(id)) keep.add(s);
   return keep;
 }
 
