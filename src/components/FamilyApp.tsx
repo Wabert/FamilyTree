@@ -143,12 +143,26 @@ export function FamilyApp({ session }: { session: SessionState }) {
   }, [trim, index]);
   const scope: TreeScope | "all" = shown && trim ? trim.scope : "all";
   const treeFamily = useMemo(() => (shown ? subFamily(family, shown) : family), [shown, family]);
-  const chooseScope = (next: TreeScope | "all") => {
-    if (next === scope) return;
-    const id = selectedId ?? lastPicked.current ?? trim?.id ?? focusCenter;
+  // The one switch over the tree: the whole of it, a branch, from the top, or Focus.
+  const treeShow: TreeScope | "whole" | "focus" = treeStyle === "focus" ? "focus" : scope === "all" ? "whole" : scope;
+  const chooseTreeShow = (next: typeof treeShow) => {
+    if (next === treeShow) return;
+    if (next === "focus") {
+      setTrim(null);
+      setTreeStyle("focus");
+      return;
+    }
+    // Leaving Focus: carry on with whoever was in the middle, without opening their card.
+    const fromFocus = treeStyle === "focus";
+    const id = fromFocus ? focusCenter : (selectedId ?? lastPicked.current ?? trim?.id ?? focusCenter);
     if (!id || !index.byId.has(id)) return;
-    setTrim(next === "all" ? null : { scope: next, id });
-    window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, next !== "all"), 60);
+    if (fromFocus) {
+      setTreeStyle("whole");
+      lastPicked.current = id;
+      setSelectedId(null);
+    }
+    setTrim(next === "whole" ? null : { scope: next, id });
+    window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, next !== "whole"), 60);
   };
 
   const sortedPeople = useMemo(
@@ -226,18 +240,6 @@ export function FamilyApp({ session }: { session: SessionState }) {
   const returnToWholeTree = () => {
     if (selected) focusPerson(selected.id);
   };
-  // From Focus to the whole tree: centre on whoever was in the middle, but don't
-  // open their card; tapping someone in the tree does that. Back still knows
-  // where you were.
-  const leaveFocusForWholeTree = () => {
-    const id = focusCenter;
-    lastPicked.current = id;
-    if (id) followInTrim(id);
-    setSelectedId(null);
-    const whole = !!shown;
-    if (id) window.setTimeout(() => treeRef.current?.centerOn(id, coveredByOverlays, whole), 60);
-  };
-
   // Tapping a card on a phone would otherwise hide it behind the bottom sheet.
   const selectFromTree = (id: string) => {
     remember(id);
@@ -602,61 +604,32 @@ export function FamilyApp({ session }: { session: SessionState }) {
               <div className="pointer-events-none absolute inset-x-4 top-[4.25rem] z-[5] flex flex-wrap items-center gap-x-2 gap-y-1.5">
               <div
                 role="group"
-                aria-label="How much of the tree to show"
+                aria-label="How to show the tree"
                 className="pointer-events-auto flex shrink-0 overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
               >
                 {(
                   [
-                    ["whole", "Whole tree"],
-                    ["focus", "Focus"],
+                    ["whole", "Whole tree", "Show everyone"],
+                    ["branch", "Branch", "Just the line down to the person you're on, and their children"],
+                    ["top", "Top", "The person you're on at the top, with everyone below them"],
+                    ["focus", "Focus", "One person at a time, with their closest family around them"],
                   ] as const
-                ).map(([style, label]) => (
+                ).map(([value, label, hint]) => (
                   <button
-                    key={style}
+                    key={value}
                     type="button"
-                    aria-pressed={treeStyle === style}
-                    onClick={() => {
-                      setTreeStyle(style);
-                      if (style === "whole" && treeStyle !== "whole") leaveFocusForWholeTree();
-                    }}
+                    aria-pressed={treeShow === value}
+                    onClick={() => chooseTreeShow(value)}
+                    title={hint}
                     className={[
                       "cursor-pointer px-2 py-1 font-medium sm:px-3",
-                      treeStyle === style ? "bg-leaf text-white" : "text-ink hover:bg-paper",
+                      treeShow === value ? "bg-leaf text-white" : "text-ink hover:bg-paper",
                     ].join(" ")}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-              {treeStyle === "whole" && (
-                <div
-                  role="group"
-                  aria-label="Which part of the tree to show"
-                  className="pointer-events-auto flex shrink-0 overflow-hidden rounded-full border border-line bg-card text-xs shadow-sm"
-                >
-                  {(
-                    [
-                      ["all", "All", "Show everyone"],
-                      ["branch", "Branch", "Just the line down to the person you're on, and their children"],
-                      ["top", "Top", "The person you're on at the top, with everyone below them"],
-                    ] as const
-                  ).map(([value, label, hint]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={scope === value}
-                      onClick={() => chooseScope(value)}
-                      title={hint}
-                      className={[
-                        "cursor-pointer px-2 py-1 font-medium sm:px-3",
-                        scope === value ? "bg-leaf text-white" : "text-ink hover:bg-paper",
-                      ].join(" ")}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
               <div className="pointer-events-auto flex gap-1">
                 {(
                   [
@@ -699,6 +672,7 @@ export function FamilyApp({ session }: { session: SessionState }) {
             onDetails={() => setDetailsId(selected.id)}
             onFocus={() => {
               setViewMode("tree");
+              setTrim(null);
               setTreeStyle("focus");
             }}
           />

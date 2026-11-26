@@ -87,37 +87,21 @@ export function useShowRelations(): boolean {
 /**
  * In Tree mode: the whole drawn tree, or Focus (one person with their
  * parents, siblings, spouse and children). Whole tree is the default on every
- * screen until the viewer picks Focus.
+ * screen, every time the app opens.
  */
 export type TreeStyle = "whole" | "focus";
-const TREE_STYLE_KEY = "family-reunion:tree-style";
 const treeStyleListeners = new Set<() => void>();
-let treeStyle: TreeStyle | null = null;
+// Not remembered: the tree always opens on the whole tree.
+let treeStyle: TreeStyle = "whole";
 
-function getTreeStyle(): TreeStyle {
-  if (treeStyle === null) {
-    let saved: string | null = null;
-    try {
-      saved = window.localStorage.getItem(TREE_STYLE_KEY);
-    } catch {
-      // Storage blocked: fall back to the screen-size default.
-    }
-    treeStyle = saved === "focus" ? "focus" : "whole";
-  }
-  return treeStyle;
-}
+const getTreeStyle = () => treeStyle;
 
 export function setTreeStyle(style: TreeStyle) {
   treeStyle = style;
-  try {
-    window.localStorage.setItem(TREE_STYLE_KEY, style);
-  } catch {
-    // Storage is blocked: the choice just won't be remembered next time.
-  }
   treeStyleListeners.forEach((listener) => listener());
 }
 
-/** The viewer's choice, remembered on this device. */
+/** Whole tree or Focus, for as long as the page is open. */
 export function useTreeStyle(): TreeStyle {
   return useSyncExternalStore(
     (listener) => {
